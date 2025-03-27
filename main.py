@@ -26,43 +26,52 @@ class AnalyzeResponse(BaseModel):
 @app.post("/analyze", response_model=AnalyzeResponse)
 def analyze(req: AnalyzeRequest):
     prompt = f"""
-You are an expert U.S. immigration attorney. Use IRAC legal analysis to answer the following question.
+You are an expert U.S. immigration attorney. Use the IRAC format to answer the following legal question.
+Include real U.S. immigration law citations (INA, 8 CFR, BIA, etc).
+Return the answer as **pure JSON**, with no markdown formatting or code blocks.
 
 Question: {req.question}
 Jurisdiction: {req.jurisdiction or "General U.S. immigration law"}
 
-Return your answer in JSON with the following fields:
+Your JSON output should have these fields:
 - issue
 - rule
 - application
 - conclusion
-- citations (as a list)
+- citations (as a list of strings)
 - conflictsOrAmbiguities
 - verificationNotes
-
-Respond only in raw JSON. Do not add ```json or markdown formatting.
 """
 
-    response = openai.ChatCompletion.create(
-        model="gpt-4",
-        messages=[
-            {"role": "system", "content": "You are a highly skilled immigration attorney. Reply in valid JSON IRAC format only."},
-            {"role": "user", "content": prompt}
-        ],
-        temperature=0.3
-    )
-
     try:
-        content = response["choices"][0]["message"]["content"]
-        parsed = json.loads(content)  # ✅ Safer than eval()
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "You are an expert immigration attorney who answers in clean JSON using IRAC."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.2
+        )
+
+        content = response.choices[0].message.content.strip()
+
+        # Clean up GPT response (remove ```json if it appears)
+        if content.startswith("```json"):
+            content = content.replace("```json", "").strip()
+        if content.endswith("```"):
+            content = content[:-3].strip()
+
+        parsed = json.loads(content)
+
         return parsed
+
     except Exception as e:
-        return {
-            "issue": "Error parsing response",
-            "rule": "",
-            "application": "",
-            "conclusion": "",
-            "citations": [],
-            "conflictsOrAmbiguities": "",
-            "verificationNotes": f"Failed to parse response: {str(e)}"
-        }
+        return AnalyzeResponse(
+            issue="Unable to complete analysis",
+            rule="",
+            application="",
+            conclusion="",
+            citations=[],
+            conflictsOrAmbiguities="",
+            verificationNotes=f"Error during GPT processing: {str(e)}"
+        )
