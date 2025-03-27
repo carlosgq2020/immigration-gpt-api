@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 import openai
 import os
+import json
 
 app = FastAPI()
 
@@ -39,31 +40,29 @@ Return your answer in JSON with the following fields:
 - conflictsOrAmbiguities
 - verificationNotes
 
-Respond only in raw JSON.
+Respond only in raw JSON. Do not add ```json or markdown formatting.
 """
 
     response = openai.ChatCompletion.create(
         model="gpt-4",
         messages=[
-            {"role": "system", "content": "You are an expert immigration attorney that replies only in structured JSON using IRAC legal analysis. Include real citations."},
+            {"role": "system", "content": "You are a highly skilled immigration attorney. Reply in valid JSON IRAC format only."},
             {"role": "user", "content": prompt}
         ],
-        temperature=0.2
+        temperature=0.3
     )
 
-  import json
-...
-
-try:
-    parsed = json.loads(content)
-    return parsed
-except Exception as e:
-    return {
-        "issue": "Error",
-        "rule": "Could not parse GPT response.",
-        "application": str(e),
-        "conclusion": "",
-        "citations": [],
-        "conflictsOrAmbiguities": "",
-        "verificationNotes": "Check API key or GPT response formatting."
-    }
+    try:
+        content = response["choices"][0]["message"]["content"]
+        parsed = json.loads(content)  # ✅ Safer than eval()
+        return parsed
+    except Exception as e:
+        return {
+            "issue": "Error parsing response",
+            "rule": "",
+            "application": "",
+            "conclusion": "",
+            "citations": [],
+            "conflictsOrAmbiguities": "",
+            "verificationNotes": f"Failed to parse response: {str(e)}"
+        }
