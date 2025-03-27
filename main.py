@@ -51,8 +51,19 @@ Respond only in raw JSON.
         temperature=0.2
     )
 
-    try:
-        content = response["choices"][0]["message"]["content"]
-        return eval(content)  # Assumes OpenAI returns properly formatted JSON
-    except Exception as e:
-        return {"error": str(e)}
+  import json
+...
+
+try:
+    parsed = json.loads(content)
+    return parsed
+except Exception as e:
+    return {
+        "issue": "Error",
+        "rule": "Could not parse GPT response.",
+        "application": str(e),
+        "conclusion": "",
+        "citations": [],
+        "conflictsOrAmbiguities": "",
+        "verificationNotes": "Check API key or GPT response formatting."
+    }
