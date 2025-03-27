@@ -1,13 +1,14 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import List, Optional
-import openai
+from openai import OpenAI
 import os
 import json
 
 app = FastAPI()
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Initialize OpenAI client with your API key from environment variable
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 class AnalyzeRequest(BaseModel):
     question: str
@@ -26,14 +27,14 @@ class AnalyzeResponse(BaseModel):
 @app.post("/analyze", response_model=AnalyzeResponse)
 def analyze(req: AnalyzeRequest):
     prompt = f"""
-You are an expert U.S. immigration attorney. Use the IRAC format to answer the following legal question.
-Include real U.S. immigration law citations (INA, 8 CFR, BIA, etc).
-Return the answer as **pure JSON**, with no markdown formatting or code blocks.
+You are a highly experienced U.S. immigration attorney. Analyze the following legal issue using the IRAC method.
 
 Question: {req.question}
 Jurisdiction: {req.jurisdiction or "General U.S. immigration law"}
 
-Your JSON output should have these fields:
+Return your answer as raw JSON, with no markdown formatting or code block.
+
+JSON fields:
 - issue
 - rule
 - application
@@ -44,10 +45,10 @@ Your JSON output should have these fields:
 """
 
     try:
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "You are an expert immigration attorney who answers in clean JSON using IRAC."},
+                {"role": "system", "content": "You are an expert immigration lawyer. Answer using structured JSON with full citations and legal references using IRAC."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.2
@@ -55,7 +56,7 @@ Your JSON output should have these fields:
 
         content = response.choices[0].message.content.strip()
 
-        # Clean up GPT response (remove ```json if it appears)
+        # Clean up formatting just in case GPT includes code block marks
         if content.startswith("```json"):
             content = content.replace("```json", "").strip()
         if content.endswith("```"):
