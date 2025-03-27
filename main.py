@@ -26,6 +26,6 @@ def analyze(req: AnalyzeRequest):
         application="The facts show political opinion-based fear due to past threats and credible testimony.",
         conclusion="The applicant likely qualifies for asylum under INA § 208.",
         citations=["8 U.S.C. § 1158", "Matter of Acosta, 19 I&N Dec. 211 (BIA 1985)"],
-        conflictsOrAmbiguities=None,
+        conflictsOrAmbiguities="None noted",
         verificationNotes="Reviewed INA § 208, USCIS Policy Manual Vol. 7, and recent BIA decisions as of March 2025."
     )
