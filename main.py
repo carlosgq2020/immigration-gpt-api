@@ -1,13 +1,17 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import List, Optional
+import openai
+import os
 
 app = FastAPI()
+
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 class AnalyzeRequest(BaseModel):
     question: str
     jurisdiction: Optional[str] = None
-    preferredSources: Optional[List[str]] = []
+    preferredSources: Optional[List[str]] = None
 
 class AnalyzeResponse(BaseModel):
     issue: str
@@ -15,17 +19,40 @@ class AnalyzeResponse(BaseModel):
     application: str
     conclusion: str
     citations: List[str]
-    conflictsOrAmbiguities: Optional[str]
-    verificationNotes: Optional[str]
+    conflictsOrAmbiguities: str
+    verificationNotes: str
 
 @app.post("/analyze", response_model=AnalyzeResponse)
 def analyze(req: AnalyzeRequest):
-    return AnalyzeResponse(
-        issue="Whether the applicant qualifies for asylum under INA § 208.",
-        rule="An applicant must show past persecution or a well-founded fear of future persecution based on a protected ground (race, religion, nationality, political opinion, or social group).",
-        application="The facts show political opinion-based fear due to past threats and credible testimony.",
-        conclusion="The applicant likely qualifies for asylum under INA § 208.",
-        citations=["8 U.S.C. § 1158", "Matter of Acosta, 19 I&N Dec. 211 (BIA 1985)"],
-        conflictsOrAmbiguities="None noted",
-        verificationNotes="Reviewed INA § 208, USCIS Policy Manual Vol. 7, and recent BIA decisions as of March 2025."
+    prompt = f"""
+You are an expert U.S. immigration attorney. Use IRAC legal analysis to answer the following question.
+
+Question: {req.question}
+Jurisdiction: {req.jurisdiction or "General U.S. immigration law"}
+
+Return your answer in JSON with the following fields:
+- issue
+- rule
+- application
+- conclusion
+- citations (as a list)
+- conflictsOrAmbiguities
+- verificationNotes
+
+Respond only in raw JSON.
+"""
+
+    response = openai.ChatCompletion.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": "You are an expert immigration attorney that replies only in structured JSON using IRAC legal analysis. Include real citations."},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.2
     )
+
+    try:
+        content = response["choices"][0]["message"]["content"]
+        return eval(content)  # Assumes OpenAI returns properly formatted JSON
+    except Exception as e:
+        return {"error": str(e)}
