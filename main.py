@@ -1,14 +1,14 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import List, Optional
-from openai import OpenAI
+import openai
 import os
 import json
 
 app = FastAPI()
 
-# Initialize OpenAI client with your API key from environment variable
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# Initialize OpenAI with your API key
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 class AnalyzeRequest(BaseModel):
     question: str
@@ -27,43 +27,39 @@ class AnalyzeResponse(BaseModel):
 @app.post("/analyze", response_model=AnalyzeResponse)
 def analyze(req: AnalyzeRequest):
     prompt = f"""
-You are a highly experienced U.S. immigration attorney. Analyze the following legal issue using the IRAC method.
+You are an expert U.S. immigration attorney. Please analyze the following legal question using the IRAC format.
 
 Question: {req.question}
 Jurisdiction: {req.jurisdiction or "General U.S. immigration law"}
 
-Return your answer as raw JSON, with no markdown formatting or code block.
-
-JSON fields:
+Please respond as raw JSON (no markdown), with the following fields:
 - issue
 - rule
 - application
 - conclusion
-- citations (as a list of strings)
+- citations (list of strings)
 - conflictsOrAmbiguities
 - verificationNotes
 """
 
     try:
-        response = client.chat.completions.create(
+        response = openai.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "You are an expert immigration lawyer. Answer using structured JSON with full citations and legal references using IRAC."},
+                {"role": "system", "content": "You are an immigration attorney. Reply in strict JSON using IRAC."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.2
+            temperature=0.3
         )
 
         content = response.choices[0].message.content.strip()
 
-        # Clean up formatting just in case GPT includes code block marks
         if content.startswith("```json"):
             content = content.replace("```json", "").strip()
         if content.endswith("```"):
             content = content[:-3].strip()
 
         parsed = json.loads(content)
-
         return parsed
 
     except Exception as e:
@@ -74,5 +70,5 @@ JSON fields:
             conclusion="",
             citations=[],
             conflictsOrAmbiguities="",
-            verificationNotes=f"Error during GPT processing: {str(e)}"
+            verificationNotes=f"Error: {str(e)}"
         )
