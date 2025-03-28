@@ -7,10 +7,12 @@ import json
 
 app = FastAPI()
 
-# Create OpenAI client object
+# ✅ Initialize OpenAI client using v1.0+ style
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# ---------------- IRAC Analysis Endpoint ----------------
+# -------------------------------
+# /analyze Endpoint (IRAC Format)
+# -------------------------------
 
 class AnalyzeRequest(BaseModel):
     question: str
@@ -29,17 +31,17 @@ class AnalyzeResponse(BaseModel):
 @app.post("/analyze", response_model=AnalyzeResponse)
 def analyze(req: AnalyzeRequest):
     prompt = f"""
-You are an expert U.S. immigration attorney. Use the IRAC method to analyze this legal question:
+You are an expert U.S. immigration attorney. Use the IRAC format to answer this legal question.
 
 Question: {req.question}
 Jurisdiction: {req.jurisdiction or "General U.S. immigration law"}
 
-Respond as raw JSON with these fields:
+Respond in raw JSON only (no markdown), with the following fields:
 - issue
 - rule
 - application
 - conclusion
-- citations
+- citations (list of strings)
 - conflictsOrAmbiguities
 - verificationNotes
 """
@@ -48,7 +50,7 @@ Respond as raw JSON with these fields:
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "You are an immigration law expert. Respond ONLY in JSON using IRAC."},
+                {"role": "system", "content": "You are an immigration law expert. Reply using only IRAC format in JSON."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3
@@ -56,6 +58,7 @@ Respond as raw JSON with these fields:
 
         content = response.choices[0].message.content.strip()
 
+        # 🧹 Clean markdown formatting if GPT includes ```json
         if content.startswith("```json"):
             content = content.replace("```json", "").strip()
         if content.endswith("```"):
@@ -84,8 +87,9 @@ Respond as raw JSON with these fields:
             verificationNotes=f"Exception: {str(e)}"
         )
 
-
-# ---------------- Draft Motion Endpoint ----------------
+# -------------------------------
+# /draftMotion Endpoint
+# -------------------------------
 
 class DraftMotionRequest(BaseModel):
     issue: str
@@ -103,18 +107,18 @@ class DraftMotionResponse(BaseModel):
 @app.post("/draftMotion", response_model=DraftMotionResponse)
 def draft_motion(req: DraftMotionRequest):
     prompt = f"""
-You are an immigration litigator. Draft a legal motion using the following:
+You are an expert immigration litigator. Draft a persuasive legal motion with the following:
 
 - Issue: {req.issue}
 - Facts: {req.facts}
 - Jurisdiction: {req.jurisdiction or "EOIR/BIA"}
 
-Return raw JSON only (no markdown):
+Return only raw JSON with these flat fields (no markdown or nesting):
 - heading
 - introduction
 - legalArgument
 - conclusion
-- citations
+- citations (list of strings only)
 - verificationNotes
 """
 
@@ -122,7 +126,7 @@ Return raw JSON only (no markdown):
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "You are an immigration litigator. Respond in structured legal JSON only."},
+                {"role": "system", "content": "You are an immigration litigator. Respond ONLY in flat JSON. No markdown or nested objects."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3
@@ -130,6 +134,7 @@ Return raw JSON only (no markdown):
 
         content = response.choices[0].message.content.strip()
 
+        # 🧹 Clean GPT output formatting
         if content.startswith("```json"):
             content = content.replace("```json", "").strip()
         if content.endswith("```"):
@@ -137,13 +142,20 @@ Return raw JSON only (no markdown):
 
         parsed = json.loads(content)
 
+        # 🔁 Flatten nested values just in case
+        def flatten(value):
+            return json.dumps(value) if isinstance(value, dict) else value
+
         return DraftMotionResponse(
-            heading=parsed.get("heading", ""),
-            introduction=parsed.get("introduction", ""),
-            legalArgument=parsed.get("legalArgument", ""),
-            conclusion=parsed.get("conclusion", ""),
-            citations=parsed.get("citations", []),
-            verificationNotes=parsed.get("verificationNotes", "")
+            heading=flatten(parsed.get("heading", "")),
+            introduction=flatten(parsed.get("introduction", "")),
+            legalArgument=flatten(parsed.get("legalArgument", "")),
+            conclusion=flatten(parsed.get("conclusion", "")),
+            citations=[
+                json.dumps(c) if isinstance(c, dict) else c
+                for c in parsed.get("citations", [])
+            ],
+            verificationNotes=flatten(parsed.get("verificationNotes", ""))
         )
 
     except Exception as e:
