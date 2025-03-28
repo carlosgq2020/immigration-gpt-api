@@ -1,3 +1,4 @@
+print("✅ App booting up...")
 from fastapi import FastAPI, UploadFile, File
 from pydantic import BaseModel
 from typing import List, Optional
