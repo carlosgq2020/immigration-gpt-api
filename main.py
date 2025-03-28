@@ -207,94 +207,122 @@ from io import BytesIO
 import fitz  # PyMuPDF
 import docx
 
-@app.post("/uploadEvidence", response_model=SummarizeEvidenceResponse)
+from fastapi import FastAPI, UploadFile, File, Form
+from pydantic import BaseModel
+from typing import List, Optional
+import openai
+import os
+import json
+from io import BytesIO
+from tempfile import SpooledTemporaryFile
+import fitz  # PyMuPDF
+import docx
+
+app = FastAPI()
+
+client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+class SummarizeEvidenceResponse(BaseModel):
+    filename: str
+    sizeInBytes: int
+    fileType: str
+    truncated: bool
+    summary: str
+    keyFacts: List[str]
+    legalIssues: List[str]
+    credibilityConcerns: str
+    recommendation: str
+    verificationNotes: str
+
+@app.post("/uploadEvidence", response_model=SummarizeEvidenceResponse, tags=["Evidence"])
 async def upload_evidence(
     file: UploadFile = File(...),
     jurisdiction: Optional[str] = Form(None),
-    context: Optional[str] = Form("Asylum")
+    context: Optional[str] = Form("Asylum"),
+    allowTruncate: Optional[bool] = Form(True)
 ):
     ext = file.filename.lower().split(".")[-1]
     content = ""
     truncated = False
 
-    try:
-        # ⏳ Read large file in safe chunks into temp buffer
-        temp_file = SpooledTemporaryFile(max_size=1024 * 1024 * 50)  # 50MB
-        while chunk := await file.read(1024 * 1024):  # 1MB chunks
-            temp_file.write(chunk)
-        temp_file.seek(0)
+    # Read file safely in chunks
+    temp_file = SpooledTemporaryFile(max_size=1024 * 1024 * 50)
+    while chunk := await file.read(1024 * 1024):
+        temp_file.write(chunk)
+    temp_file.seek(0)
+    file_size = temp_file.tell()
 
+    try:
         if ext == "docx":
-            try:
-                document = docx.Document(temp_file)
-                paragraphs = [p.text for p in document.paragraphs if p.text.strip()]
-                content = "\n".join(paragraphs)
-            except Exception as e:
-                return SummarizeEvidenceResponse(
-                    summary="Could not process DOCX file.",
-                    keyFacts=[],
-                    legalIssues=[],
-                    credibilityConcerns="",
-                    recommendation="",
-                    verificationNotes=f"DOCX read error: {str(e)}"
-                )
+            document = docx.Document(temp_file)
+            paragraphs = [p.text for p in document.paragraphs if p.text.strip()]
+            content = "\n".join(paragraphs)
 
         elif ext == "pdf":
-            try:
-                content = ""
-                pdf = fitz.open(stream=temp_file.read(), filetype="pdf")
-                for page in pdf:
-                    content += page.get_text()
-                pdf.close()
-            except Exception as e:
-                return SummarizeEvidenceResponse(
-                    summary="Could not extract text from PDF.",
-                    keyFacts=[],
-                    legalIssues=[],
-                    credibilityConcerns="",
-                    recommendation="",
-                    verificationNotes=f"PDF error: {str(e)}"
-                )
+            content = ""
+            pdf = fitz.open(stream=temp_file.read(), filetype="pdf")
+            for page in pdf:
+                content += page.get_text()
+            pdf.close()
 
         elif ext == "txt":
             try:
                 content = temp_file.read().decode("utf-8")
-            except Exception as e:
-                return SummarizeEvidenceResponse(
-                    summary="Could not decode text file.",
-                    keyFacts=[],
-                    legalIssues=[],
-                    credibilityConcerns="",
-                    recommendation="",
-                    verificationNotes=f"TXT decode error: {str(e)}"
-                )
+            except UnicodeDecodeError:
+                try:
+                    content = temp_file.read().decode("utf-8-sig")
+                except:
+                    content = temp_file.read().decode("latin-1")
+
         else:
             return SummarizeEvidenceResponse(
+                filename=file.filename,
+                sizeInBytes=file_size,
+                fileType=ext,
+                truncated=False,
                 summary="Unsupported file type.",
                 keyFacts=[],
                 legalIssues=[],
                 credibilityConcerns="",
                 recommendation="",
-                verificationNotes="Only PDF, DOCX, and TXT are supported."
+                verificationNotes="Only PDF, DOCX, and TXT files are supported."
             )
+
+        # Enforce max length for GPT
+        MAX_CHARS = 12000
+        if len(content) > MAX_CHARS:
+            if allowTruncate:
+                content = content[:MAX_CHARS]
+                truncated = True
+            else:
+                return SummarizeEvidenceResponse(
+                    filename=file.filename,
+                    sizeInBytes=file_size,
+                    fileType=ext,
+                    truncated=True,
+                    summary="File too large to process. Truncation is disabled.",
+                    keyFacts=[],
+                    legalIssues=[],
+                    credibilityConcerns="",
+                    recommendation="",
+                    verificationNotes="Re-upload with `allowTruncate=true` to process this file."
+                )
 
     except Exception as e:
         return SummarizeEvidenceResponse(
-            summary="Error reading uploaded file.",
+            filename=file.filename,
+            sizeInBytes=file_size,
+            fileType=ext,
+            truncated=False,
+            summary="Failed to extract file content.",
             keyFacts=[],
             legalIssues=[],
             credibilityConcerns="",
             recommendation="",
-            verificationNotes=f"Upload error: {str(e)}"
+            verificationNotes=f"Exception during file processing: {str(e)}"
         )
 
-    # ✂️ Truncate content to fit GPT input window
-    MAX_CHARS_FOR_GPT = 12000
-    if len(content) > MAX_CHARS_FOR_GPT:
-        content = content[:MAX_CHARS_FOR_GPT]
-        truncated = True
-
-    # 🧠 Call GPT to summarize the evidence
+    # GPT prompt
     prompt = f"""
 You are an expert immigration attorney analyzing a piece of evidence (e.g., affidavit or declaration).
 
@@ -319,7 +347,7 @@ Respond ONLY in raw JSON with these fields:
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "You are a senior immigration litigator. Respond ONLY in flat JSON. No markdown, no nested objects."},
+                {"role": "system", "content": "You are a senior immigration litigator. Respond ONLY in raw JSON. No markdown, no nesting."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3
@@ -332,24 +360,29 @@ Respond ONLY in raw JSON with these fields:
             output = output[:-3].strip()
 
         parsed = json.loads(output)
-
-        # Add truncation note to verification field if needed
-        verification_notes = parsed.get("verificationNotes", "")
         if truncated:
-            verification_notes += "\nNote: Input file was large and was truncated to ~12,000 characters to fit GPT model limits."
+            parsed["verificationNotes"] += "\nNote: Input file was truncated to ~12,000 characters."
 
         return SummarizeEvidenceResponse(
+            filename=file.filename,
+            sizeInBytes=file_size,
+            fileType=ext,
+            truncated=truncated,
             summary=parsed.get("summary", ""),
             keyFacts=parsed.get("keyFacts", []),
             legalIssues=parsed.get("legalIssues", []),
             credibilityConcerns=parsed.get("credibilityConcerns", ""),
             recommendation=parsed.get("recommendation", ""),
-            verificationNotes=verification_notes
+            verificationNotes=parsed.get("verificationNotes", "")
         )
 
     except Exception as e:
         return SummarizeEvidenceResponse(
-            summary="GPT analysis failed.",
+            filename=file.filename,
+            sizeInBytes=file_size,
+            fileType=ext,
+            truncated=truncated,
+            summary="GPT processing failed.",
             keyFacts=[],
             legalIssues=[],
             credibilityConcerns="",
