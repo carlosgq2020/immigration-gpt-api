@@ -7,12 +7,10 @@ import json
 
 app = FastAPI()
 
-# Load your OpenAI key from environment variable
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Create OpenAI client object
+client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# ----------------------------
-# IRAC Analysis Endpoint
-# ----------------------------
+# ---------------- IRAC Analysis Endpoint ----------------
 
 class AnalyzeRequest(BaseModel):
     question: str
@@ -31,26 +29,26 @@ class AnalyzeResponse(BaseModel):
 @app.post("/analyze", response_model=AnalyzeResponse)
 def analyze(req: AnalyzeRequest):
     prompt = f"""
-You are an expert U.S. immigration attorney. Analyze the following legal question using the IRAC format.
+You are an expert U.S. immigration attorney. Use the IRAC method to analyze this legal question:
 
 Question: {req.question}
 Jurisdiction: {req.jurisdiction or "General U.S. immigration law"}
 
-Return only raw JSON (no markdown), with the following fields:
+Respond as raw JSON with these fields:
 - issue
 - rule
 - application
 - conclusion
-- citations (list of strings)
+- citations
 - conflictsOrAmbiguities
 - verificationNotes
 """
 
     try:
-        response = openai.chat.completions.create(
+        response = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "You are a legal expert. Respond ONLY in JSON using IRAC format."},
+                {"role": "system", "content": "You are an immigration law expert. Respond ONLY in JSON using IRAC."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3
@@ -58,7 +56,6 @@ Return only raw JSON (no markdown), with the following fields:
 
         content = response.choices[0].message.content.strip()
 
-        # Remove markdown formatting if present
         if content.startswith("```json"):
             content = content.replace("```json", "").strip()
         if content.endswith("```"):
@@ -88,9 +85,7 @@ Return only raw JSON (no markdown), with the following fields:
         )
 
 
-# ----------------------------
-# Draft Motion Endpoint
-# ----------------------------
+# ---------------- Draft Motion Endpoint ----------------
 
 class DraftMotionRequest(BaseModel):
     issue: str
@@ -108,26 +103,26 @@ class DraftMotionResponse(BaseModel):
 @app.post("/draftMotion", response_model=DraftMotionResponse)
 def draft_motion(req: DraftMotionRequest):
     prompt = f"""
-You are an expert immigration litigator. Draft a persuasive legal motion based on the following:
+You are an immigration litigator. Draft a legal motion using the following:
 
 - Issue: {req.issue}
 - Facts: {req.facts}
 - Jurisdiction: {req.jurisdiction or "EOIR/BIA"}
 
-Return only raw JSON (no markdown), with the following fields:
+Return raw JSON only (no markdown):
 - heading
 - introduction
 - legalArgument
 - conclusion
-- citations (list of strings)
+- citations
 - verificationNotes
 """
 
     try:
-        response = openai.chat.completions.create(
+        response = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "You are a legal brief writer. Respond in strict JSON format."},
+                {"role": "system", "content": "You are an immigration litigator. Respond in structured legal JSON only."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3
