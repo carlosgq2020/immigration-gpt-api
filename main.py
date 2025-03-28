@@ -200,28 +200,34 @@ class SummarizeEvidenceResponse(BaseModel):
 
 from io import BytesIO
 
+from fastapi import UploadFile, File, Form
+from tempfile import SpooledTemporaryFile
+from io import BytesIO
+import fitz  # PyMuPDF
+import docx
+
 @app.post("/uploadEvidence", response_model=SummarizeEvidenceResponse)
 async def upload_evidence(
     file: UploadFile = File(...),
-    jurisdiction: Optional[str] = None,
-    context: Optional[str] = "Asylum"
+    jurisdiction: Optional[str] = Form(None),
+    context: Optional[str] = Form("Asylum")
 ):
     ext = file.filename.lower().split(".")[-1]
     content = ""
+    truncated = False
 
     try:
-        file_bytes = await file.read()
+        # ⏳ Read large file in safe chunks into temp buffer
+        temp_file = SpooledTemporaryFile(max_size=1024 * 1024 * 50)  # 50MB
+        while chunk := await file.read(1024 * 1024):  # 1MB chunks
+            temp_file.write(chunk)
+        temp_file.seek(0)
 
         if ext == "docx":
             try:
-                buffer = BytesIO(file_bytes)
-                document = docx.Document(buffer)
+                document = docx.Document(temp_file)
                 paragraphs = [p.text for p in document.paragraphs if p.text.strip()]
-
-                # 🚧 Limit content size for GPT (token-safe, around 4000 tokens max)
-                max_chars = 12000  # ~4000 tokens
-                content = "\n".join(paragraphs)[:max_chars]
-
+                content = "\n".join(paragraphs)
             except Exception as e:
                 return SummarizeEvidenceResponse(
                     summary="Could not process DOCX file.",
@@ -234,8 +240,10 @@ async def upload_evidence(
 
         elif ext == "pdf":
             try:
-                pdf = fitz.open(stream=file_bytes, filetype="pdf")
-                content = "".join(page.get_text() for page in pdf)
+                content = ""
+                pdf = fitz.open(stream=temp_file.read(), filetype="pdf")
+                for page in pdf:
+                    content += page.get_text()
                 pdf.close()
             except Exception as e:
                 return SummarizeEvidenceResponse(
@@ -249,7 +257,7 @@ async def upload_evidence(
 
         elif ext == "txt":
             try:
-                content = file_bytes.decode("utf-8")
+                content = temp_file.read().decode("utf-8")
             except Exception as e:
                 return SummarizeEvidenceResponse(
                     summary="Could not decode text file.",
@@ -261,7 +269,7 @@ async def upload_evidence(
                 )
         else:
             return SummarizeEvidenceResponse(
-                summary="Unsupported file type",
+                summary="Unsupported file type.",
                 keyFacts=[],
                 legalIssues=[],
                 credibilityConcerns="",
@@ -279,7 +287,13 @@ async def upload_evidence(
             verificationNotes=f"Upload error: {str(e)}"
         )
 
-    # ✅ Feed into GPT prompt (unchanged)
+    # ✂️ Truncate content to fit GPT input window
+    MAX_CHARS_FOR_GPT = 12000
+    if len(content) > MAX_CHARS_FOR_GPT:
+        content = content[:MAX_CHARS_FOR_GPT]
+        truncated = True
+
+    # 🧠 Call GPT to summarize the evidence
     prompt = f"""
 You are an expert immigration attorney analyzing a piece of evidence (e.g., affidavit or declaration).
 
@@ -304,14 +318,13 @@ Respond ONLY in raw JSON with these fields:
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "You are a senior immigration litigator. Respond in strict flat JSON only."},
+                {"role": "system", "content": "You are a senior immigration litigator. Respond ONLY in flat JSON. No markdown, no nested objects."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3
         )
 
         output = response.choices[0].message.content.strip()
-
         if output.startswith("```json"):
             output = output.replace("```json", "").strip()
         if output.endswith("```"):
@@ -319,18 +332,23 @@ Respond ONLY in raw JSON with these fields:
 
         parsed = json.loads(output)
 
+        # Add truncation note to verification field if needed
+        verification_notes = parsed.get("verificationNotes", "")
+        if truncated:
+            verification_notes += "\nNote: Input file was large and was truncated to ~12,000 characters to fit GPT model limits."
+
         return SummarizeEvidenceResponse(
             summary=parsed.get("summary", ""),
             keyFacts=parsed.get("keyFacts", []),
             legalIssues=parsed.get("legalIssues", []),
             credibilityConcerns=parsed.get("credibilityConcerns", ""),
             recommendation=parsed.get("recommendation", ""),
-            verificationNotes=parsed.get("verificationNotes", "")
+            verificationNotes=verification_notes
         )
 
     except Exception as e:
         return SummarizeEvidenceResponse(
-            summary="GPT analysis failed",
+            summary="GPT analysis failed.",
             keyFacts=[],
             legalIssues=[],
             credibilityConcerns="",
