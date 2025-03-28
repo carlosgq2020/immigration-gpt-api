@@ -261,6 +261,33 @@ class SummarizeEvidenceResponse(BaseModel):
     recommendation: str
     verificationNotes: str
 
+from fastapi import FastAPI, UploadFile, File, Form
+from pydantic import BaseModel
+from typing import List, Optional
+import openai
+import os
+import json
+from io import BytesIO
+from tempfile import SpooledTemporaryFile
+import fitz  # PyMuPDF
+import docx
+
+app = FastAPI()
+
+client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+class SummarizeEvidenceResponse(BaseModel):
+    filename: str
+    sizeInBytes: int
+    fileType: str
+    truncated: bool
+    summary: str
+    keyFacts: List[str]
+    legalIssues: List[str]
+    credibilityConcerns: str
+    recommendation: str
+    verificationNotes: str
+
 @app.post("/uploadEvidence", response_model=SummarizeEvidenceResponse, tags=["Evidence"])
 async def upload_evidence(
     file: UploadFile = File(...),
