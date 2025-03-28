@@ -1,10 +1,10 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File
 from pydantic import BaseModel
 from typing import List, Optional
 import openai
 import os
 import json
-from fastapi import FastAPI, UploadFile, File
+
 
 app = FastAPI()
 
