@@ -198,29 +198,67 @@ class SummarizeEvidenceResponse(BaseModel):
     recommendation: str
     verificationNotes: str
 
-@app.post("/uploadEvidence", response_model=SummarizeEvidenceResponse)
-async def upload_evidence(file: UploadFile = File(...), jurisdiction: Optional[str] = None, context: Optional[str] = "Asylum"):
+from io import BytesIO
 
+@app.post("/uploadEvidence", response_model=SummarizeEvidenceResponse)
+async def upload_evidence(
+    file: UploadFile = File(...),
+    jurisdiction: Optional[str] = None,
+    context: Optional[str] = "Asylum"
+):
     ext = file.filename.lower().split(".")[-1]
     content = ""
 
     try:
         file_bytes = await file.read()
 
-        if ext == "pdf":
-            pdf = fitz.open(stream=file_bytes, filetype="pdf")
-            for page in pdf:
-                content += page.get_text()
-            pdf.close()
+        if ext == "docx":
+            try:
+                buffer = BytesIO(file_bytes)
+                document = docx.Document(buffer)
+                paragraphs = [p.text for p in document.paragraphs if p.text.strip()]
 
-        elif ext == "docx":
-            from io import BytesIO
-            doc = docx.Document(BytesIO(file_bytes))
-            content = "\n".join([p.text for p in doc.paragraphs])
+                # 🚧 Limit content size for GPT (token-safe, around 4000 tokens max)
+                max_chars = 12000  # ~4000 tokens
+                content = "\n".join(paragraphs)[:max_chars]
+
+            except Exception as e:
+                return SummarizeEvidenceResponse(
+                    summary="Could not process DOCX file.",
+                    keyFacts=[],
+                    legalIssues=[],
+                    credibilityConcerns="",
+                    recommendation="",
+                    verificationNotes=f"DOCX read error: {str(e)}"
+                )
+
+        elif ext == "pdf":
+            try:
+                pdf = fitz.open(stream=file_bytes, filetype="pdf")
+                content = "".join(page.get_text() for page in pdf)
+                pdf.close()
+            except Exception as e:
+                return SummarizeEvidenceResponse(
+                    summary="Could not extract text from PDF.",
+                    keyFacts=[],
+                    legalIssues=[],
+                    credibilityConcerns="",
+                    recommendation="",
+                    verificationNotes=f"PDF error: {str(e)}"
+                )
 
         elif ext == "txt":
-            content = file_bytes.decode("utf-8")
-
+            try:
+                content = file_bytes.decode("utf-8")
+            except Exception as e:
+                return SummarizeEvidenceResponse(
+                    summary="Could not decode text file.",
+                    keyFacts=[],
+                    legalIssues=[],
+                    credibilityConcerns="",
+                    recommendation="",
+                    verificationNotes=f"TXT decode error: {str(e)}"
+                )
         else:
             return SummarizeEvidenceResponse(
                 summary="Unsupported file type",
@@ -228,20 +266,20 @@ async def upload_evidence(file: UploadFile = File(...), jurisdiction: Optional[s
                 legalIssues=[],
                 credibilityConcerns="",
                 recommendation="",
-                verificationNotes="Only PDF, DOCX, and TXT files are supported."
+                verificationNotes="Only PDF, DOCX, and TXT are supported."
             )
 
     except Exception as e:
         return SummarizeEvidenceResponse(
-            summary="Could not extract text from file.",
+            summary="Error reading uploaded file.",
             keyFacts=[],
             legalIssues=[],
             credibilityConcerns="",
             recommendation="",
-            verificationNotes=f"File read error: {str(e)}"
+            verificationNotes=f"Upload error: {str(e)}"
         )
 
-    # Call GPT with content
+    # ✅ Feed into GPT prompt (unchanged)
     prompt = f"""
 You are an expert immigration attorney analyzing a piece of evidence (e.g., affidavit or declaration).
 
@@ -266,13 +304,14 @@ Respond ONLY in raw JSON with these fields:
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "You are a senior immigration litigator. Respond ONLY in strict, flat JSON. No markdown or nesting."},
+                {"role": "system", "content": "You are a senior immigration litigator. Respond in strict flat JSON only."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3
         )
 
         output = response.choices[0].message.content.strip()
+
         if output.startswith("```json"):
             output = output.replace("```json", "").strip()
         if output.endswith("```"):
@@ -291,10 +330,10 @@ Respond ONLY in raw JSON with these fields:
 
     except Exception as e:
         return SummarizeEvidenceResponse(
-            summary="Error analyzing evidence",
+            summary="GPT analysis failed",
             keyFacts=[],
             legalIssues=[],
             credibilityConcerns="",
             recommendation="",
-            verificationNotes=f"GPT exception: {str(e)}"
+            verificationNotes=f"GPT error: {str(e)}"
         )
