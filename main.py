@@ -183,3 +183,82 @@ Return the following fields:
             citations=[],
             verificationNotes=f"Exception: {str(e)}"
         )
+
+class SummarizeEvidenceRequest(BaseModel):
+    text: str
+    jurisdiction: Optional[str] = None
+    context: Optional[str] = None  # e.g., "Asylum", "CAT", "Motion to Reopen"
+
+class SummarizeEvidenceResponse(BaseModel):
+    summary: str
+    keyFacts: List[str]
+    legalIssues: List[str]
+    credibilityConcerns: str
+    recommendation: str
+    verificationNotes: str
+
+@app.post("/summarizeEvidence", response_model=SummarizeEvidenceResponse)
+def summarize_evidence(req: SummarizeEvidenceRequest):
+    prompt = f"""
+You are an expert U.S. immigration attorney analyzing a piece of evidence (e.g., affidavit or declaration).
+
+Jurisdiction: {req.jurisdiction or "General U.S. immigration law"}
+Context: {req.context or "Asylum"}
+
+Please summarize the text, extract key facts, identify legal issues, flag any credibility concerns, and give a recommendation on how this could support or weaken the case.
+
+Text:
+{req.text}
+
+Respond ONLY in raw JSON with these fields:
+- summary
+- keyFacts (list of bullet point strings)
+- legalIssues (list of bullet point strings)
+- credibilityConcerns
+- recommendation
+- verificationNotes
+"""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a senior immigration attorney. Respond in flat JSON only, no markdown. "
+                        "Be legally precise and extract useful litigation analysis from the text."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3
+        )
+
+        content = response.choices[0].message.content.strip()
+
+        if content.startswith("```json"):
+            content = content.replace("```json", "").strip()
+        if content.endswith("```"):
+            content = content[:-3].strip()
+
+        parsed = json.loads(content)
+
+        return SummarizeEvidenceResponse(
+            summary=parsed.get("summary", ""),
+            keyFacts=parsed.get("keyFacts", []),
+            legalIssues=parsed.get("legalIssues", []),
+            credibilityConcerns=parsed.get("credibilityConcerns", ""),
+            recommendation=parsed.get("recommendation", ""),
+            verificationNotes=parsed.get("verificationNotes", "")
+        )
+
+    except Exception as e:
+        return SummarizeEvidenceResponse(
+            summary="Error analyzing evidence",
+            keyFacts=[],
+            legalIssues=[],
+            credibilityConcerns="",
+            recommendation="",
+            verificationNotes=f"Exception: {str(e)}"
+        )
