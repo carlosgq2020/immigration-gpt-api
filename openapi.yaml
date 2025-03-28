@@ -1,0 +1,140 @@
+openapi: 3.1.0
+info:
+  title: Immigration Law API
+  description: Analyze legal questions, draft motions, and summarize uploaded evidence for asylum and immigration proceedings.
+  version: 1.0.0
+servers:
+  - url: https://api.lawqb.com
+paths:
+  /analyze:
+    post:
+      operationId: analyzeLegalQuestion
+      summary: Analyze a legal question using IRAC format
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                question:
+                  type: string
+                jurisdiction:
+                  type: string
+                preferredSources:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: IRAC legal analysis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalyzeResponse'
+  /draftMotion:
+    post:
+      operationId: draftMotion
+      summary: Generate a motion based on facts and issue
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                issue:
+                  type: string
+                facts:
+                  type: string
+                jurisdiction:
+                  type: string
+      responses:
+        '200':
+          description: Draft motion response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftMotionResponse'
+  /uploadEvidence:
+    post:
+      operationId: summarizeEvidenceUpload
+      summary: Upload and summarize a document for asylum or immigration proceedings
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                jurisdiction:
+                  type: string
+                context:
+                  type: string
+      responses:
+        '200':
+          description: Evidence summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummarizeEvidenceResponse'
+components:
+  schemas:
+    AnalyzeResponse:
+      type: object
+      properties:
+        issue:
+          type: string
+        rule:
+          type: string
+        application:
+          type: string
+        conclusion:
+          type: string
+        citations:
+          type: array
+          items:
+            type: string
+        conflictsOrAmbiguities:
+          type: string
+        verificationNotes:
+          type: string
+    DraftMotionResponse:
+      type: object
+      properties:
+        heading:
+          type: string
+        introduction:
+          type: string
+        legalArgument:
+          type: string
+        conclusion:
+          type: string
+        citations:
+          type: array
+          items:
+            type: string
+        verificationNotes:
+          type: string
+    SummarizeEvidenceResponse:
+      type: object
+      properties:
+        summary:
+          type: string
+        keyFacts:
+          type: array
+          items:
+            type: string
+        legalIssues:
+          type: array
+          items:
+            type: string
+        credibilityConcerns:
+          type: string
+        recommendation:
+          type: string
+        verificationNotes:
+          type: string
