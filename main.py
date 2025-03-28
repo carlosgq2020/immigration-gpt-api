@@ -107,18 +107,28 @@ class DraftMotionResponse(BaseModel):
 @app.post("/draftMotion", response_model=DraftMotionResponse)
 def draft_motion(req: DraftMotionRequest):
     prompt = f"""
-You are an expert immigration litigator. Draft a persuasive legal motion with the following:
+You are a senior U.S. immigration litigator preparing a persuasive legal motion for EOIR or a federal court.
 
-- Issue: {req.issue}
-- Facts: {req.facts}
-- Jurisdiction: {req.jurisdiction or "EOIR/BIA"}
+Issue: {req.issue}
+Facts: {req.facts}
+Jurisdiction: {req.jurisdiction or "EOIR / BIA or federal immigration courts"}
 
-Return only raw JSON with these flat fields (no markdown or nesting):
+Your task:
+- Draft a formal motion, citing relevant law, tailored to the facts and jurisdiction.
+- Cite at least one post-2018 BIA or Circuit Court decision, and explain how it applies.
+- Include statutory or regulatory citations (INA, 8 CFR, USCIS Policy Manual).
+- Avoid generic examples like Matter of Acosta unless contextually required.
+- Be specific. Write like you are trying to persuade an immigration judge or BIA panel.
+- Use precise legal language and structure.
+
+Your response must be valid JSON — no markdown, no extra formatting.
+Return the following fields:
+
 - heading
 - introduction
 - legalArgument
 - conclusion
-- citations (list of strings only)
+- citations (list of strings)
 - verificationNotes
 """
 
@@ -126,7 +136,14 @@ Return only raw JSON with these flat fields (no markdown or nesting):
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "You are an immigration litigator. Respond ONLY in flat JSON. No markdown or nested objects."},
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a senior U.S. immigration litigator. "
+                        "Respond ONLY in raw, flat JSON with persuasive legal language, strong citations, and jurisdiction-specific reasoning. "
+                        "Avoid markdown and avoid nested objects."
+                    )
+                },
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3
@@ -134,7 +151,6 @@ Return only raw JSON with these flat fields (no markdown or nesting):
 
         content = response.choices[0].message.content.strip()
 
-        # 🧹 Clean GPT output formatting
         if content.startswith("```json"):
             content = content.replace("```json", "").strip()
         if content.endswith("```"):
@@ -142,7 +158,7 @@ Return only raw JSON with these flat fields (no markdown or nesting):
 
         parsed = json.loads(content)
 
-        # 🔁 Flatten nested values just in case
+        # Flatten any fields just in case
         def flatten(value):
             return json.dumps(value) if isinstance(value, dict) else value
 
