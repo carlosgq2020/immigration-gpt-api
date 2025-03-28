@@ -1,15 +1,16 @@
-print("✅ App booting up...")
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Form
 from pydantic import BaseModel
 from typing import List, Optional
 import openai
 import os
 import json
-
+from tempfile import SpooledTemporaryFile
+import docx
+import fitz  # PyMuPDF
 
 app = FastAPI()
 
-# ✅ Initialize OpenAI client using v1.0+ style
+# Initialize OpenAI client
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # -------------------------------
@@ -47,7 +48,6 @@ Respond in raw JSON only (no markdown), with the following fields:
 - conflictsOrAmbiguities
 - verificationNotes
 """
-
     try:
         response = client.chat.completions.create(
             model="gpt-4",
@@ -59,8 +59,6 @@ Respond in raw JSON only (no markdown), with the following fields:
         )
 
         content = response.choices[0].message.content.strip()
-
-        # 🧹 Clean markdown formatting if GPT includes ```json
         if content.startswith("```json"):
             content = content.replace("```json", "").strip()
         if content.endswith("```"):
@@ -120,7 +118,6 @@ Your task:
 - Cite at least one post-2018 BIA or Circuit Court decision, and explain how it applies.
 - Include statutory or regulatory citations (INA, 8 CFR, USCIS Policy Manual).
 - Avoid generic examples like Matter of Acosta unless contextually required.
-- Be specific. Write like you are trying to persuade an immigration judge or BIA panel.
 - Use precise legal language and structure.
 
 Your response must be valid JSON — no markdown, no extra formatting.
@@ -133,26 +130,17 @@ Return the following fields:
 - citations (list of strings)
 - verificationNotes
 """
-
     try:
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a senior U.S. immigration litigator. "
-                        "Respond ONLY in raw, flat JSON with persuasive legal language, strong citations, and jurisdiction-specific reasoning. "
-                        "Avoid markdown and avoid nested objects."
-                    )
-                },
+                {"role": "system", "content": "You are a senior U.S. immigration litigator. Respond ONLY in flat JSON."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3
         )
 
         content = response.choices[0].message.content.strip()
-
         if content.startswith("```json"):
             content = content.replace("```json", "").strip()
         if content.endswith("```"):
@@ -160,20 +148,13 @@ Return the following fields:
 
         parsed = json.loads(content)
 
-        # Flatten any fields just in case
-        def flatten(value):
-            return json.dumps(value) if isinstance(value, dict) else value
-
         return DraftMotionResponse(
-            heading=flatten(parsed.get("heading", "")),
-            introduction=flatten(parsed.get("introduction", "")),
-            legalArgument=flatten(parsed.get("legalArgument", "")),
-            conclusion=flatten(parsed.get("conclusion", "")),
-            citations=[
-                json.dumps(c) if isinstance(c, dict) else c
-                for c in parsed.get("citations", [])
-            ],
-            verificationNotes=flatten(parsed.get("verificationNotes", ""))
+            heading=parsed.get("heading", ""),
+            introduction=parsed.get("introduction", ""),
+            legalArgument=parsed.get("legalArgument", ""),
+            conclusion=parsed.get("conclusion", ""),
+            citations=parsed.get("citations", []),
+            verificationNotes=parsed.get("verificationNotes", "")
         )
 
     except Exception as e:
@@ -186,41 +167,9 @@ Return the following fields:
             verificationNotes=f"Exception: {str(e)}"
         )
 
-class SummarizeEvidenceRequest(BaseModel):
-    text: str
-    jurisdiction: Optional[str] = None
-    context: Optional[str] = None  # e.g., "Asylum", "CAT", "Motion to Reopen"
-
-class SummarizeEvidenceResponse(BaseModel):
-    summary: str
-    keyFacts: List[str]
-    legalIssues: List[str]
-    credibilityConcerns: str
-    recommendation: str
-    verificationNotes: str
-
-from io import BytesIO
-
-from fastapi import UploadFile, File, Form
-from tempfile import SpooledTemporaryFile
-from io import BytesIO
-import fitz  # PyMuPDF
-import docx
-
-from fastapi import FastAPI, UploadFile, File, Form
-from pydantic import BaseModel
-from typing import List, Optional
-import openai
-import os
-import json
-from io import BytesIO
-from tempfile import SpooledTemporaryFile
-import fitz  # PyMuPDF
-import docx
-
-app = FastAPI()
-
-client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# -------------------------------
+# /uploadEvidence Endpoint
+# -------------------------------
 
 class SummarizeEvidenceResponse(BaseModel):
     filename: str
@@ -234,104 +183,39 @@ class SummarizeEvidenceResponse(BaseModel):
     recommendation: str
     verificationNotes: str
 
-from fastapi import FastAPI, UploadFile, File, Form
-from pydantic import BaseModel
-from typing import List, Optional
-import openai
-import os
-import json
-from io import BytesIO
-from tempfile import SpooledTemporaryFile
-import fitz  # PyMuPDF
-import docx
-
-app = FastAPI()
-
-client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-class SummarizeEvidenceResponse(BaseModel):
-    filename: str
-    sizeInBytes: int
-    fileType: str
-    truncated: bool
-    summary: str
-    keyFacts: List[str]
-    legalIssues: List[str]
-    credibilityConcerns: str
-    recommendation: str
-    verificationNotes: str
-
-from fastapi import FastAPI, UploadFile, File, Form
-from pydantic import BaseModel
-from typing import List, Optional
-import openai
-import os
-import json
-from io import BytesIO
-from tempfile import SpooledTemporaryFile
-import fitz  # PyMuPDF
-import docx
-
-app = FastAPI()
-
-client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-class SummarizeEvidenceResponse(BaseModel):
-    filename: str
-    sizeInBytes: int
-    fileType: str
-    truncated: bool
-    summary: str
-    keyFacts: List[str]
-    legalIssues: List[str]
-    credibilityConcerns: str
-    recommendation: str
-    verificationNotes: str
-
-@app.post("/uploadEvidence", response_model=SummarizeEvidenceResponse, tags=["Evidence"])
+@app.post("/uploadEvidence", response_model=SummarizeEvidenceResponse)
 async def upload_evidence(
     file: UploadFile = File(...),
     jurisdiction: Optional[str] = Form(None),
-    context: Optional[str] = Form("Asylum"),
-    allowTruncate: Optional[bool] = Form(True)
+    context: Optional[str] = Form("Asylum")
 ):
     ext = file.filename.lower().split(".")[-1]
     content = ""
     truncated = False
 
-    # Read file safely in chunks
-    temp_file = SpooledTemporaryFile(max_size=1024 * 1024 * 50)
-    while chunk := await file.read(1024 * 1024):
-        temp_file.write(chunk)
-    temp_file.seek(0)
-    file_size = temp_file.tell()
-
     try:
+        temp_file = SpooledTemporaryFile(max_size=1024 * 1024 * 50)  # 50MB
+        while chunk := await file.read(1024 * 1024):
+            temp_file.write(chunk)
+
+        temp_file.seek(0)
+
         if ext == "docx":
-            document = docx.Document(temp_file)
-            paragraphs = [p.text for p in document.paragraphs if p.text.strip()]
-            content = "\n".join(paragraphs)
+            doc = docx.Document(temp_file)
+            content = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
 
         elif ext == "pdf":
-            content = ""
             pdf = fitz.open(stream=temp_file.read(), filetype="pdf")
-            for page in pdf:
-                content += page.get_text()
+            content = "\n".join(page.get_text() for page in pdf)
             pdf.close()
 
         elif ext == "txt":
-            try:
-                content = temp_file.read().decode("utf-8")
-            except UnicodeDecodeError:
-                try:
-                    content = temp_file.read().decode("utf-8-sig")
-                except:
-                    content = temp_file.read().decode("latin-1")
+            content = temp_file.read().decode("utf-8")
 
         else:
             return SummarizeEvidenceResponse(
                 filename=file.filename,
-                sizeInBytes=file_size,
+                sizeInBytes=0,
                 fileType=ext,
                 truncated=False,
                 summary="Unsupported file type.",
@@ -339,44 +223,28 @@ async def upload_evidence(
                 legalIssues=[],
                 credibilityConcerns="",
                 recommendation="",
-                verificationNotes="Only PDF, DOCX, and TXT files are supported."
+                verificationNotes="Only PDF, DOCX, and TXT are supported."
             )
-
-        # Enforce max length for GPT
-        MAX_CHARS = 12000
-        if len(content) > MAX_CHARS:
-            if allowTruncate:
-                content = content[:MAX_CHARS]
-                truncated = True
-            else:
-                return SummarizeEvidenceResponse(
-                    filename=file.filename,
-                    sizeInBytes=file_size,
-                    fileType=ext,
-                    truncated=True,
-                    summary="File too large to process. Truncation is disabled.",
-                    keyFacts=[],
-                    legalIssues=[],
-                    credibilityConcerns="",
-                    recommendation="",
-                    verificationNotes="Re-upload with `allowTruncate=true` to process this file."
-                )
 
     except Exception as e:
         return SummarizeEvidenceResponse(
             filename=file.filename,
-            sizeInBytes=file_size,
+            sizeInBytes=0,
             fileType=ext,
             truncated=False,
-            summary="Failed to extract file content.",
+            summary="Could not read file.",
             keyFacts=[],
             legalIssues=[],
             credibilityConcerns="",
             recommendation="",
-            verificationNotes=f"Exception during file processing: {str(e)}"
+            verificationNotes=f"Read error: {str(e)}"
         )
 
-    # GPT prompt
+    MAX_CHARS = 12000
+    if len(content) > MAX_CHARS:
+        content = content[:MAX_CHARS]
+        truncated = True
+
     prompt = f"""
 You are an expert immigration attorney analyzing a piece of evidence (e.g., affidavit or declaration).
 
@@ -396,12 +264,11 @@ Respond ONLY in raw JSON with these fields:
 - recommendation
 - verificationNotes
 """
-
     try:
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "You are a senior immigration litigator. Respond ONLY in raw JSON. No markdown, no nesting."},
+                {"role": "system", "content": "You are a senior immigration litigator. Respond ONLY in flat JSON. No markdown, no nested objects."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3
@@ -414,12 +281,14 @@ Respond ONLY in raw JSON with these fields:
             output = output[:-3].strip()
 
         parsed = json.loads(output)
+
+        notes = parsed.get("verificationNotes", "")
         if truncated:
-            parsed["verificationNotes"] += "\nNote: Input file was truncated to ~12,000 characters."
+            notes += "\nNote: Input file was truncated to ~12,000 characters."
 
         return SummarizeEvidenceResponse(
             filename=file.filename,
-            sizeInBytes=file_size,
+            sizeInBytes=len(content.encode("utf-8")),
             fileType=ext,
             truncated=truncated,
             summary=parsed.get("summary", ""),
@@ -427,16 +296,16 @@ Respond ONLY in raw JSON with these fields:
             legalIssues=parsed.get("legalIssues", []),
             credibilityConcerns=parsed.get("credibilityConcerns", ""),
             recommendation=parsed.get("recommendation", ""),
-            verificationNotes=parsed.get("verificationNotes", "")
+            verificationNotes=notes
         )
 
     except Exception as e:
         return SummarizeEvidenceResponse(
             filename=file.filename,
-            sizeInBytes=file_size,
+            sizeInBytes=0,
             fileType=ext,
             truncated=truncated,
-            summary="GPT processing failed.",
+            summary="GPT analysis failed.",
             keyFacts=[],
             legalIssues=[],
             credibilityConcerns="",
