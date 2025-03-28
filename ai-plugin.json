@@ -1,0 +1,17 @@
+{
+  "schema_version": "v1",
+  "name_for_human": "Immigration Law Plugin",
+  "name_for_model": "immigrationLaw",
+  "description_for_human": "Analyze asylum claims, draft motions, and summarize affidavits.",
+  "description_for_model": "Helps users analyze U.S. immigration issues, draft legal motions, and summarize supporting evidence from uploaded documents.",
+  "auth": {
+    "type": "none"
+  },
+  "api": {
+    "type": "openapi",
+    "url": "https://api.lawqb.com/openapi.yaml"
+  },
+  "logo_url": "https://api.lawqb.com/logo.png",
+  "contact_email": "support@lawqb.com",
+  "legal_info_url": "https://lawqb.com/terms"
+}
