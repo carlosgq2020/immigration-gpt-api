@@ -262,3 +262,89 @@ Respond ONLY in raw JSON with these fields:
             recommendation="",
             verificationNotes=f"Exception: {str(e)}"
         )
+
+from fastapi import UploadFile, File
+import fitz  # PyMuPDF
+import docx
+
+@app.post("/uploadEvidence", response_model=SummarizeEvidenceResponse)
+async def upload_evidence(file: UploadFile = File(...), jurisdiction: Optional[str] = None, context: Optional[str] = "Asylum"):
+
+    ext = file.filename.lower().split(".")[-1]
+
+    # Extract text from file based on type
+    content = ""
+    if ext == "pdf":
+        pdf = fitz.open(stream=await file.read(), filetype="pdf")
+        for page in pdf:
+            content += page.get_text()
+        pdf.close()
+
+    elif ext == "docx":
+        doc = docx.Document(await file.read())
+        content = "\n".join([p.text for p in doc.paragraphs])
+
+    elif ext == "txt":
+        content = (await file.read()).decode("utf-8")
+
+    else:
+        raise ValueError("Unsupported file type. Use PDF, DOCX, or TXT.")
+
+    # Reuse the same logic from /summarizeEvidence
+    prompt = f"""
+You are an expert immigration attorney analyzing a piece of evidence (e.g., affidavit or declaration).
+
+Jurisdiction: {jurisdiction or "General U.S. immigration law"}
+Context: {context or "Asylum"}
+
+Please summarize the text, extract key facts, identify legal issues, flag any credibility concerns, and give a recommendation on how this could support or weaken the case.
+
+Text:
+{content}
+
+Respond ONLY in raw JSON with these fields:
+- summary
+- keyFacts (list of bullet point strings)
+- legalIssues (list of bullet point strings)
+- credibilityConcerns
+- recommendation
+- verificationNotes
+"""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "You are a senior immigration litigator. Respond ONLY in strict, flat JSON. No markdown or nesting."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3
+        )
+
+        content = response.choices[0].message.content.strip()
+
+        if content.startswith("```json"):
+            content = content.replace("```json", "").strip()
+        if content.endswith("```"):
+            content = content[:-3].strip()
+
+        parsed = json.loads(content)
+
+        return SummarizeEvidenceResponse(
+            summary=parsed.get("summary", ""),
+            keyFacts=parsed.get("keyFacts", []),
+            legalIssues=parsed.get("legalIssues", []),
+            credibilityConcerns=parsed.get("credibilityConcerns", ""),
+            recommendation=parsed.get("recommendation", ""),
+            verificationNotes=parsed.get("verificationNotes", "")
+        )
+
+    except Exception as e:
+        return SummarizeEvidenceResponse(
+            summary="Error processing file",
+            keyFacts=[],
+            legalIssues=[],
+            credibilityConcerns="",
+            recommendation="",
+            verificationNotes=f"Exception: {str(e)}"
+        )
