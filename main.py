@@ -1,44 +1,34 @@
 from dotenv import load_dotenv
 import os
-
-load_dotenv()
-print("🔑 API KEY:", os.getenv("OPENAI_API_KEY"))
-client = openai.OpenAI(api_key=openai_api_key)
+import openai
 from fastapi import FastAPI, UploadFile, File, Form
 from pydantic import BaseModel
 from typing import List, Optional
-import openai
-import os
-import json
 from tempfile import SpooledTemporaryFile
 import docx
 import fitz  # PyMuPDF
+import json
 import logging
 
-logging.basicConfig(level=logging.INFO)
+# === Load environment and set API key ===
+load_dotenv()
+openai_api_key = os.getenv("OPENAI_API_KEY")
+print("🔑 API KEY:", "FOUND" if openai_api_key else "NOT FOUND")
+client = openai.OpenAI(api_key=openai_api_key)
 
+# === FastAPI App ===
 app = FastAPI(
     title="LawQB Immigration Legal AI API",
     description="Upload declarations and receive legal analysis and motion drafting assistance. Powered by GPT-4.",
     version="1.0.0"
 )
 
-client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-MAX_UPLOAD_SIZE_MB = 50
-MAX_CHARS_FOR_GPT = 12000
-
-# ===========================
-# Health Check
-# ===========================
-@app.get("/health", summary="Health check", description="Returns status ok.")
+# === Healthcheck ===
+@app.get("/health", summary="Health check")
 def healthcheck():
     return {"status": "ok"}
 
-# ===========================
-# Analyze (IRAC Format)
-# ===========================
-
+# === Models ===
 class AnalyzeRequest(BaseModel):
     question: str
     jurisdiction: Optional[str] = None
@@ -53,7 +43,7 @@ class AnalyzeResponse(BaseModel):
     conflictsOrAmbiguities: str
     verificationNotes: str
 
-@app.post("/analyze", response_model=AnalyzeResponse, summary="Analyze legal question in IRAC format")
+@app.post("/analyze", response_model=AnalyzeResponse)
 def analyze(req: AnalyzeRequest):
     prompt = f"""
 You are an expert U.S. immigration attorney. Use the IRAC format to answer this legal question.
@@ -96,10 +86,7 @@ Respond in raw JSON only (no markdown), with the following fields:
             verificationNotes=f"Exception: {str(e)}"
         )
 
-# ===========================
-# Draft Motion
-# ===========================
-
+# === Draft Motion ===
 class DraftMotionRequest(BaseModel):
     issue: str
     facts: str
@@ -113,7 +100,7 @@ class DraftMotionResponse(BaseModel):
     citations: List[str]
     verificationNotes: str
 
-@app.post("/draftMotion", response_model=DraftMotionResponse, summary="Generate immigration motion")
+@app.post("/draftMotion", response_model=DraftMotionResponse)
 def draft_motion(req: DraftMotionRequest):
     prompt = f"""
 You are a senior U.S. immigration litigator preparing a persuasive legal motion for EOIR or a federal court.
@@ -162,23 +149,7 @@ Return ONLY raw flat JSON — no markdown.
             verificationNotes=f"Exception: {str(e)}"
         )
 
-# ===========================
-# Upload Evidence & Summarize
-# ===========================
-
-from fastapi import UploadFile, File, Form
-from pydantic import BaseModel
-from typing import Optional, List
-from tempfile import SpooledTemporaryFile
-import fitz  # PyMuPDF
-import docx
-import json
-import openai
-import os
-
-client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-# -------------------- RESPONSE MODEL --------------------
+# === Upload & Summarize Evidence ===
 class SummarizeEvidenceResponse(BaseModel):
     filename: str
     sizeInBytes: int
@@ -192,7 +163,6 @@ class SummarizeEvidenceResponse(BaseModel):
     recommendation: str
     verificationNotes: str
 
-# -------------------- API ENDPOINT --------------------
 @app.post("/uploadEvidence", response_model=SummarizeEvidenceResponse)
 async def upload_evidence(
     file: UploadFile = File(...),
@@ -206,15 +176,13 @@ async def upload_evidence(
     readable_size = "Unknown"
 
     try:
-        # Read file into buffer
-        temp_file = SpooledTemporaryFile(max_size=1024 * 1024 * 100)  # 100MB
-        while chunk := await file.read(1024 * 1024):  # 1MB at a time
+        temp_file = SpooledTemporaryFile(max_size=1024 * 1024 * 100)
+        while chunk := await file.read(1024 * 1024):
             total_bytes += len(chunk)
             temp_file.write(chunk)
         temp_file.seek(0)
         readable_size = f"{round(total_bytes / 1024, 1)} KB"
 
-        # Extract text
         if ext == "docx":
             document = docx.Document(temp_file)
             content = "\n".join([p.text for p in document.paragraphs if p.text.strip()])
@@ -242,13 +210,11 @@ async def upload_evidence(
             verificationNotes=f"File processing error: {str(e)}"
         )
 
-    # ------------- SPLIT INTO CHUNKS FOR GPT -------------
     MAX_CHARS = 11000
     chunks = [content[i:i+MAX_CHARS] for i in range(0, len(content), MAX_CHARS)]
     if len(chunks) > 1:
         truncated = True
 
-    # ------------- FUNCTION TO ANALYZE EACH CHUNK ---------
     def gpt_analyze(text_chunk: str):
         prompt = f"""
 You are an expert immigration attorney analyzing part of a legal evidence document.
@@ -297,13 +263,8 @@ Return JSON only:
                 "verificationNotes": f"GPT error: {str(e)}"
             }
 
-    # ----------- RUN GPT ON EACH CHUNK AND MERGE ----------
-    summaries = []
-    keyFacts = []
-    legalIssues = []
-    credibilityNotes = []
-    recommendations = []
-    verificationNotes = []
+    summaries, keyFacts, legalIssues = [], [], []
+    credibilityNotes, recommendations, verificationNotes = [], [], []
 
     for chunk in chunks:
         parsed = gpt_analyze(chunk)
@@ -314,7 +275,6 @@ Return JSON only:
         recommendations.append(parsed.get("recommendation", ""))
         verificationNotes.append(parsed.get("verificationNotes", ""))
 
-    # ----------- MERGED RESPONSE --------------------------
     return SummarizeEvidenceResponse(
         filename=file.filename,
         sizeInBytes=total_bytes,
