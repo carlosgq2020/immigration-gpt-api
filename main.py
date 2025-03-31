@@ -167,7 +167,12 @@ from tempfile import SpooledTemporaryFile
 import fitz  # PyMuPDF
 import docx
 import json
+import openai
+import os
 
+client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# -------------------- RESPONSE MODEL --------------------
 class SummarizeEvidenceResponse(BaseModel):
     filename: str
     sizeInBytes: int
@@ -181,6 +186,7 @@ class SummarizeEvidenceResponse(BaseModel):
     recommendation: str
     verificationNotes: str
 
+# -------------------- API ENDPOINT --------------------
 @app.post("/uploadEvidence", response_model=SummarizeEvidenceResponse)
 async def upload_evidence(
     file: UploadFile = File(...),
@@ -188,22 +194,24 @@ async def upload_evidence(
     context: Optional[str] = Form("Asylum")
 ):
     ext = file.filename.lower().split(".")[-1]
-    readable_size = f"{round(file.size / 1024, 1)} KB" if hasattr(file, "size") else "Unknown"
     content = ""
     truncated = False
+    total_bytes = 0
+    readable_size = "Unknown"
 
     try:
-        temp_file = SpooledTemporaryFile(max_size=1024 * 1024 * 50)
-        total_bytes = 0
-        while chunk := await file.read(1024 * 1024):
+        # Read file into buffer
+        temp_file = SpooledTemporaryFile(max_size=1024 * 1024 * 100)  # 100MB
+        while chunk := await file.read(1024 * 1024):  # 1MB at a time
             total_bytes += len(chunk)
             temp_file.write(chunk)
         temp_file.seek(0)
+        readable_size = f"{round(total_bytes / 1024, 1)} KB"
 
+        # Extract text
         if ext == "docx":
-            doc = docx.Document(temp_file)
-            paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
-            content = "\n".join(paragraphs)
+            document = docx.Document(temp_file)
+            content = "\n".join([p.text for p in document.paragraphs if p.text.strip()])
         elif ext == "pdf":
             pdf = fitz.open(stream=temp_file.read(), filetype="pdf")
             content = "".join([page.get_text() for page in pdf])
@@ -228,78 +236,89 @@ async def upload_evidence(
             verificationNotes=f"File processing error: {str(e)}"
         )
 
-    # Truncate content if needed
-    MAX_CHARS_FOR_GPT = 12000
-    if len(content) > MAX_CHARS_FOR_GPT:
-        content = content[:MAX_CHARS_FOR_GPT]
+    # ------------- SPLIT INTO CHUNKS FOR GPT -------------
+    MAX_CHARS = 11000
+    chunks = [content[i:i+MAX_CHARS] for i in range(0, len(content), MAX_CHARS)]
+    if len(chunks) > 1:
         truncated = True
 
-    prompt = f"""
-You are an expert immigration attorney analyzing a piece of evidence (e.g., declaration, affidavit, or report).
+    # ------------- FUNCTION TO ANALYZE EACH CHUNK ---------
+    def gpt_analyze(text_chunk: str):
+        prompt = f"""
+You are an expert immigration attorney analyzing part of a legal evidence document.
 
 Jurisdiction: {jurisdiction or "General U.S. immigration law"}
 Context: {context or "Asylum"}
 
-Summarize the text, extract key facts, identify legal issues, flag any credibility concerns, and give a recommendation on how this helps or hurts the case.
+Summarize the text, extract key facts, identify legal issues, note credibility concerns, and give a legal recommendation.
 
 Text:
-{content}
+{text_chunk}
 
-Respond ONLY in raw JSON with these fields:
+Return JSON only:
 - summary
-- keyFacts (list of bullet point strings)
-- legalIssues (list of bullet point strings)
+- keyFacts (list of strings)
+- legalIssues (list of strings)
 - credibilityConcerns
 - recommendation
 - verificationNotes
 """
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": "You are a senior immigration attorney. Reply ONLY in flat JSON. No markdown."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3
+            )
 
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "You are a senior immigration litigator. Respond ONLY in flat JSON. No markdown."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3
-        )
+            result = response.choices[0].message.content.strip()
+            if result.startswith("```json"):
+                result = result.replace("```json", "").strip()
+            if result.endswith("```"):
+                result = result[:-3].strip()
 
-        raw_output = response.choices[0].message.content.strip()
-        if raw_output.startswith("```json"):
-            raw_output = raw_output.replace("```json", "").strip()
-        if raw_output.endswith("```"):
-            raw_output = raw_output[:-3].strip()
+            return json.loads(result)
 
-        parsed = json.loads(raw_output)
-        notes = parsed.get("verificationNotes", "")
-        if truncated:
-            notes += "\nNote: Input file was truncated to ~12,000 characters."
+        except Exception as e:
+            return {
+                "summary": "Error during GPT analysis.",
+                "keyFacts": [],
+                "legalIssues": [],
+                "credibilityConcerns": "",
+                "recommendation": "",
+                "verificationNotes": f"GPT error: {str(e)}"
+            }
 
-        return SummarizeEvidenceResponse(
-            filename=file.filename,
-            sizeInBytes=total_bytes,
-            readableSize=f"{round(total_bytes / 1024, 1)} KB",
-            fileType=ext,
-            truncated=truncated,
-            summary=parsed.get("summary", ""),
-            keyFacts=parsed.get("keyFacts", []),
-            legalIssues=parsed.get("legalIssues", []),
-            credibilityConcerns=parsed.get("credibilityConcerns", ""),
-            recommendation=parsed.get("recommendation", ""),
-            verificationNotes=notes
-        )
+    # ----------- RUN GPT ON EACH CHUNK AND MERGE ----------
+    summaries = []
+    keyFacts = []
+    legalIssues = []
+    credibilityNotes = []
+    recommendations = []
+    verificationNotes = []
 
-    except Exception as e:
-        return SummarizeEvidenceResponse(
-            filename=file.filename,
-            sizeInBytes=total_bytes,
-            readableSize=readable_size,
-            fileType=ext,
-            truncated=truncated,
-            summary="GPT failed to summarize the document.",
-            keyFacts=[],
-            legalIssues=[],
-            credibilityConcerns="",
-            recommendation="",
-            verificationNotes=f"GPT error: {str(e)}"
-        )
+    for chunk in chunks:
+        parsed = gpt_analyze(chunk)
+        summaries.append(parsed.get("summary", ""))
+        keyFacts.extend(parsed.get("keyFacts", []))
+        legalIssues.extend(parsed.get("legalIssues", []))
+        credibilityNotes.append(parsed.get("credibilityConcerns", ""))
+        recommendations.append(parsed.get("recommendation", ""))
+        verificationNotes.append(parsed.get("verificationNotes", ""))
+
+    # ----------- MERGED RESPONSE --------------------------
+    return SummarizeEvidenceResponse(
+        filename=file.filename,
+        sizeInBytes=total_bytes,
+        readableSize=readable_size,
+        fileType=ext,
+        truncated=truncated,
+        summary=" ".join(summaries),
+        keyFacts=list(set(keyFacts)),
+        legalIssues=list(set(legalIssues)),
+        credibilityConcerns=" ".join(credibilityNotes),
+        recommendation=" ".join(recommendations),
+        verificationNotes="\n".join(verificationNotes)
+    )
