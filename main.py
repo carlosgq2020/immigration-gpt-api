@@ -2,7 +2,7 @@ from dotenv import load_dotenv
 import os
 
 load_dotenv()
-openai_api_key = os.getenv("OPENAI_API_KEY")
+print("🔑 API KEY:", os.getenv("OPENAI_API_KEY"))
 client = openai.OpenAI(api_key=openai_api_key)
 from fastapi import FastAPI, UploadFile, File, Form
 from pydantic import BaseModel
