@@ -160,10 +160,24 @@ Return ONLY raw flat JSON — no markdown.
 # Upload Evidence & Summarize
 # ===========================
 
+from fastapi import UploadFile, File, Form
+from typing import Optional, List
+from pydantic import BaseModel
+from io import BytesIO
+from tempfile import SpooledTemporaryFile
+import fitz  # PyMuPDF
+import docx
+import json
+import openai
+import os
+
+client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
 class SummarizeEvidenceResponse(BaseModel):
     filename: str
-    fileType: str
     sizeInBytes: int
+    readableSize: str
+    fileType: str
     truncated: bool
     summary: str
     keyFacts: List[str]
@@ -172,135 +186,139 @@ class SummarizeEvidenceResponse(BaseModel):
     recommendation: str
     verificationNotes: str
 
-@app.post("/uploadEvidence", response_model=SummarizeEvidenceResponse, summary="Upload evidence (PDF, DOCX, TXT)", description="Parses declaration and returns asylum-focused summary + legal analysis.")
+@app.post("/uploadEvidence", response_model=SummarizeEvidenceResponse)
 async def upload_evidence(
     file: UploadFile = File(...),
     jurisdiction: Optional[str] = Form(None),
     context: Optional[str] = Form("Asylum")
 ):
     ext = file.filename.lower().split(".")[-1]
-    temp_file = SpooledTemporaryFile(max_size=1024 * 1024 * MAX_UPLOAD_SIZE_MB)
+    file_size = 0
     content = ""
     truncated = False
 
-    await file.seek(0, 2)
-    size = await file.tell()
-    await file.seek(0)
-
-    if size > MAX_UPLOAD_SIZE_MB * 1024 * 1024:
-        return SummarizeEvidenceResponse(
-            filename=file.filename,
-            fileType=ext,
-            sizeInBytes=size,
-            truncated=False,
-            summary="File is too large to process.",
-            keyFacts=[], legalIssues=[], credibilityConcerns="",
-            recommendation="", verificationNotes="File exceeded max upload size of 50MB"
-        )
-
-    # Read content into temp_file
-    while chunk := await file.read(1024 * 1024):
-        temp_file.write(chunk)
-    temp_file.seek(0)
-
     try:
-        if ext == "docx":
-            document = docx.Document(temp_file)
-            paragraphs = [p.text for p in document.paragraphs if p.text.strip()]
-            content = "\n".join(paragraphs)
-        elif ext == "pdf":
-            pdf = fitz.open(stream=temp_file.read(), filetype="pdf")
-            content = "\n".join([page.get_text() for page in pdf])
-            pdf.close()
-        elif ext == "txt":
-            content = temp_file.read().decode("utf-8")
-        else:
-            return SummarizeEvidenceResponse(
-                filename=file.filename,
-                fileType=ext,
-                sizeInBytes=size,
-                truncated=False,
-                summary="Unsupported file type.",
-                keyFacts=[], legalIssues=[], credibilityConcerns="",
-                recommendation="", verificationNotes="Only PDF, DOCX, and TXT files are supported."
-            )
-    except Exception as e:
-        return SummarizeEvidenceResponse(
-            filename=file.filename,
-            fileType=ext,
-            sizeInBytes=size,
-            truncated=False,
-            summary="Error processing file.",
-            keyFacts=[], legalIssues=[], credibilityConcerns="",
-            recommendation="", verificationNotes=f"Error reading content: {str(e)}"
-        )
+        temp_file = SpooledTemporaryFile(max_size=1024 * 1024 * 50)  # 50MB
+        while chunk := await file.read(1024 * 1024):  # 1MB chunks
+            temp_file.write(chunk)
+            file_size += len(chunk)
+        temp_file.seek(0)
 
+        if ext == "docx":
+            try:
+                document = docx.Document(temp_file)
+                paragraphs = [p.text for p in document.paragraphs if p.text.strip()]
+                content = "\n".join(paragraphs)
+            except Exception as e:
+                return _error_response("Could not process DOCX file", file, file_size, ext, truncated, str(e))
+
+        elif ext == "pdf":
+            try:
+                content = ""
+                pdf = fitz.open(stream=temp_file.read(), filetype="pdf")
+                for page in pdf:
+                    content += page.get_text()
+                pdf.close()
+            except Exception as e:
+                return _error_response("Could not extract text from PDF", file, file_size, ext, truncated, str(e))
+
+        elif ext == "txt":
+            try:
+                content = temp_file.read().decode("utf-8")
+            except Exception as e:
+                return _error_response("Could not decode text file", file, file_size, ext, truncated, str(e))
+
+        else:
+            return _error_response("Unsupported file type", file, file_size, ext, truncated, "Only PDF, DOCX, and TXT are supported.")
+
+    except Exception as e:
+        return _error_response("Error reading uploaded file", file, file_size, ext, truncated, str(e))
+
+    # Truncate content if too long
+    MAX_CHARS_FOR_GPT = 12000
     if len(content) > MAX_CHARS_FOR_GPT:
         content = content[:MAX_CHARS_FOR_GPT]
         truncated = True
 
+    # Send to GPT
     prompt = f"""
-You are an expert immigration litigator. Analyze the following text as evidence in an asylum or immigration case.
+You are an expert immigration attorney analyzing a piece of evidence (e.g., affidavit or declaration).
 
-Jurisdiction: {jurisdiction or "General"}
-Context: {context}
+Jurisdiction: {jurisdiction or "General U.S. immigration law"}
+Context: {context or "Asylum"}
 
-Provide:
-- summary
-- keyFacts (list of strings)
-- legalIssues (list of strings)
-- credibilityConcerns
-- recommendation
-- verificationNotes
+Please summarize the text, extract key facts, identify legal issues, flag any credibility concerns, and give a recommendation on how this could support or weaken the case.
 
 Text:
 {content}
 
-Reply ONLY in valid flat JSON.
+Respond ONLY in raw JSON with these fields:
+- summary
+- keyFacts (list of bullet point strings)
+- legalIssues (list of bullet point strings)
+- credibilityConcerns
+- recommendation
+- verificationNotes
 """
 
     try:
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "You are a senior immigration litigator. Reply ONLY in raw flat JSON."},
+                {"role": "system", "content": "You are a senior immigration litigator. Respond ONLY in flat JSON. No markdown, no nested objects."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3
         )
+
         output = response.choices[0].message.content.strip()
-        if output.startswith("```json"): output = output.replace("```json", "").strip()
-        if output.endswith("```"): output = output[:-3].strip()
+        if output.startswith("```json"):
+            output = output.replace("```json", "").strip()
+        if output.endswith("```"):
+            output = output[:-3].strip()
+
         parsed = json.loads(output)
         if truncated:
-            parsed["verificationNotes"] += "\nNote: File was truncated to ~12,000 characters for GPT processing."
+            parsed["verificationNotes"] += "\nNote: Input file was truncated to ~12,000 characters to fit GPT model limits."
 
         return SummarizeEvidenceResponse(
             filename=file.filename,
+            sizeInBytes=file_size,
+            readableSize=_human_readable_size(file_size),
             fileType=ext,
-            sizeInBytes=size,
             truncated=truncated,
-            **parsed
+            summary=parsed.get("summary", ""),
+            keyFacts=parsed.get("keyFacts", []),
+            legalIssues=parsed.get("legalIssues", []),
+            credibilityConcerns=parsed.get("credibilityConcerns", ""),
+            recommendation=parsed.get("recommendation", ""),
+            verificationNotes=parsed.get("verificationNotes", "")
         )
+
     except Exception as e:
-        return SummarizeEvidenceResponse(
-            filename=file.filename,
-            fileType=ext,
-            sizeInBytes=size,
-            truncated=truncated,
-            summary="GPT analysis failed.",
-            keyFacts=[], legalIssues=[], credibilityConcerns="",
-            recommendation="", verificationNotes=f"GPT error: {str(e)}"
-        )
+        return _error_response("GPT analysis failed", file, file_size, ext, truncated, str(e))
 
-# ===========================
-# Test Upload (Dev Tool)
-# ===========================
-@app.post("/testUpload", summary="Echo file for testing")
-async def test_upload(file: UploadFile = File(...)):
-    content = await file.read()
-    return {
-        "filename": file.filename,
-        "size": len(content),
-        "preview": content.decode("utf-8")[:500]
-    }
+
+# --- Utility functions
+
+def _error_response(summary, file, size, ext, truncated, detail=""):
+    return SummarizeEvidenceResponse(
+        filename=file.filename,
+        sizeInBytes=size,
+        readableSize=_human_readable_size(size),
+        fileType=ext,
+        truncated=truncated,
+        summary=summary,
+        keyFacts=[],
+        legalIssues=[],
+        credibilityConcerns="",
+        recommendation="",
+        verificationNotes=detail
+    )
+
+def _human_readable_size(size):
+    for unit in ['bytes', 'KB', 'MB', 'GB']:
+        if size < 1024:
+            return f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"
