@@ -11,7 +11,7 @@ import json
 import logging
 
 # === Load environment and set API key ===
-load_dotenv(dotenv_path=".env")
+load_dotenv()
 openai_api_key = os.getenv("OPENAI_API_KEY")
 print("🔑 API KEY:", "FOUND" if openai_api_key else "NOT FOUND")
 client = openai.OpenAI(api_key=openai_api_key)
@@ -23,12 +23,12 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# === Health Check ===
+# === Healthcheck ===
 @app.get("/health", summary="Health check")
 def healthcheck():
     return {"status": "ok"}
 
-# === IRAC Analysis ===
+# === Analyze Legal Question ===
 class AnalyzeRequest(BaseModel):
     question: str
     jurisdiction: Optional[str] = None
@@ -60,6 +60,7 @@ Respond in raw JSON only (no markdown), with the following fields:
 - conflictsOrAmbiguities
 - verificationNotes
 """
+
     try:
         response = client.chat.completions.create(
             model="gpt-4",
@@ -70,8 +71,10 @@ Respond in raw JSON only (no markdown), with the following fields:
             temperature=0.3
         )
         content = response.choices[0].message.content.strip()
-        if content.startswith("```json"): content = content.replace("```json", "").strip()
-        if content.endswith("```"): content = content[:-3].strip()
+        if content.startswith("```json"):
+            content = content.replace("```json", "").strip()
+        if content.endswith("```"):
+            content = content[:-3].strip()
         parsed = json.loads(content)
         return AnalyzeResponse(**parsed)
     except Exception as e:
@@ -117,18 +120,27 @@ Your task:
 
 Return ONLY raw flat JSON — no markdown.
 """
+
     try:
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "You are a senior U.S. immigration litigator. Respond ONLY in raw, flat JSON."},
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a senior U.S. immigration litigator. "
+                        "Respond ONLY in raw, flat JSON with persuasive legal language and strong citations."
+                    )
+                },
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3
         )
         content = response.choices[0].message.content.strip()
-        if content.startswith("```json"): content = content.replace("```json", "").strip()
-        if content.endswith("```"): content = content[:-3].strip()
+        if content.startswith("```json"):
+            content = content.replace("```json", "").strip()
+        if content.endswith("```"):
+            content = content[:-3].strip()
         parsed = json.loads(content)
         return DraftMotionResponse(**parsed)
     except Exception as e:
@@ -165,6 +177,7 @@ async def upload_evidence(
     content = ""
     truncated = False
     total_bytes = 0
+    readable_size = "Unknown"
 
     try:
         temp_file = SpooledTemporaryFile(max_size=1024 * 1024 * 100)
@@ -175,8 +188,8 @@ async def upload_evidence(
         readable_size = f"{round(total_bytes / 1024, 1)} KB"
 
         if ext == "docx":
-            doc = docx.Document(temp_file)
-            content = "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
+            document = docx.Document(temp_file)
+            content = "\n".join([p.text for p in document.paragraphs if p.text.strip()])
         elif ext == "pdf":
             pdf = fitz.open(stream=temp_file.read(), filetype="pdf")
             content = "".join([page.get_text() for page in pdf])
@@ -185,11 +198,12 @@ async def upload_evidence(
             content = temp_file.read().decode("utf-8")
         else:
             raise ValueError("Unsupported file type")
+
     except Exception as e:
         return SummarizeEvidenceResponse(
             filename=file.filename,
             sizeInBytes=total_bytes,
-            readableSize="Unknown",
+            readableSize=readable_size,
             fileType=ext,
             truncated=False,
             summary="Could not process file.",
@@ -197,26 +211,27 @@ async def upload_evidence(
             legalIssues=[],
             credibilityConcerns="",
             recommendation="",
-            verificationNotes=f"File error: {str(e)}"
+            verificationNotes=f"File processing error: {str(e)}"
         )
 
-    # Chunk content
     MAX_CHARS = 11000
     chunks = [content[i:i+MAX_CHARS] for i in range(0, len(content), MAX_CHARS)]
     if len(chunks) > 1:
         truncated = True
 
-    def gpt_analyze(text_chunk):
+    def gpt_analyze(text_chunk: str):
         prompt = f"""
-You are an expert immigration attorney analyzing evidence.
+You are an expert immigration attorney analyzing part of a legal evidence document.
 
 Jurisdiction: {jurisdiction or "General U.S. immigration law"}
 Context: {context or "Asylum"}
 
-Analyze the following:
+Summarize the text, extract key facts, identify legal issues, note credibility concerns, and give a legal recommendation.
+
+Text:
 {text_chunk}
 
-Return flat JSON with:
+Return JSON only:
 - summary
 - keyFacts (list of strings)
 - legalIssues (list of strings)
@@ -225,18 +240,23 @@ Return flat JSON with:
 - verificationNotes
 """
         try:
-            res = client.chat.completions.create(
+            response = client.chat.completions.create(
                 model="gpt-4",
                 messages=[
-                    {"role": "system", "content": "Respond ONLY in flat JSON."},
+                    {"role": "system", "content": "You are a senior immigration attorney. Reply ONLY in flat JSON. No markdown."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.3
             )
-            raw = res.choices[0].message.content.strip()
-            if raw.startswith("```json"): raw = raw.replace("```json", "").strip()
-            if raw.endswith("```"): raw = raw[:-3].strip()
-            return json.loads(raw)
+
+            result = response.choices[0].message.content.strip()
+            if result.startswith("```json"):
+                result = result.replace("```json", "").strip()
+            if result.endswith("```"):
+                result = result[:-3].strip()
+
+            return json.loads(result)
+
         except Exception as e:
             return {
                 "summary": "Error during GPT analysis.",
@@ -247,18 +267,17 @@ Return flat JSON with:
                 "verificationNotes": f"GPT error: {str(e)}"
             }
 
-    # Aggregate responses
     summaries, keyFacts, legalIssues = [], [], []
-    credibilityConcerns, recommendations, verificationNotes = [], [], []
+    credibilityNotes, recommendations, verificationNotes = [], [], []
 
     for chunk in chunks:
-        result = gpt_analyze(chunk)
-        summaries.append(result.get("summary", ""))
-        keyFacts.extend(result.get("keyFacts", []))
-        legalIssues.extend(result.get("legalIssues", []))
-        credibilityConcerns.append(result.get("credibilityConcerns", ""))
-        recommendations.append(result.get("recommendation", ""))
-        verificationNotes.append(result.get("verificationNotes", ""))
+        parsed = gpt_analyze(chunk)
+        summaries.append(parsed.get("summary", ""))
+        keyFacts.extend(parsed.get("keyFacts", []))
+        legalIssues.extend(parsed.get("legalIssues", []))
+        credibilityNotes.append(parsed.get("credibilityConcerns", ""))
+        recommendations.append(parsed.get("recommendation", ""))
+        verificationNotes.append(parsed.get("verificationNotes", ""))
 
     return SummarizeEvidenceResponse(
         filename=file.filename,
@@ -266,10 +285,10 @@ Return flat JSON with:
         readableSize=readable_size,
         fileType=ext,
         truncated=truncated,
-        summary=" ".join(summaries),
+        summary=" ".join(filter(None, map(str, summaries))),
         keyFacts=list(set(keyFacts)),
         legalIssues=list(set(legalIssues)),
-        credibilityConcerns=" ".join(credibilityConcerns),
-        recommendation=" ".join(recommendations),
-        verificationNotes="\n".join(verificationNotes)
+        credibilityConcerns=" ".join(filter(None, map(str, credibilityNotes))),
+        recommendation=" ".join(filter(None, map(str, recommendations))),
+        verificationNotes="\n".join(filter(None, map(str, verificationNotes)))
     )
