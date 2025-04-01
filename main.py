@@ -271,9 +271,9 @@ Return JSON only:
         summaries.append(parsed.get("summary", ""))
         keyFacts.extend(parsed.get("keyFacts", []))
         legalIssues.extend(parsed.get("legalIssues", []))
-       credibilityNotes.append(parsed.get("credibilityConcerns") or "")
-recommendations.append(parsed.get("recommendation") or "")
-verificationNotes.append(parsed.get("verificationNotes") or "")
+        credibilityNotes.append(parsed.get("credibilityConcerns") or "")
+        recommendations.append(parsed.get("recommendation") or "")
+        verificationNotes.append(parsed.get("verificationNotes") or "")
 
     return SummarizeEvidenceResponse(
     filename=file.filename,
