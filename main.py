@@ -60,7 +60,6 @@ Respond in raw JSON only (no markdown), with the following fields:
 - conflictsOrAmbiguities
 - verificationNotes
 """
-
     try:
         response = client.chat.completions.create(
             model="gpt-4",
@@ -118,7 +117,6 @@ Your task:
 
 Return ONLY raw flat JSON — no markdown.
 """
-
     try:
         response = client.chat.completions.create(
             model="gpt-4",
@@ -244,15 +242,12 @@ Return JSON only:
                 ],
                 temperature=0.3
             )
-
             result = response.choices[0].message.content.strip()
             if result.startswith("```json"):
                 result = result.replace("```json", "").strip()
             if result.endswith("```"):
                 result = result[:-3].strip()
-
             return json.loads(result)
-
         except Exception as e:
             return {
                 "summary": "Error during GPT analysis.",
@@ -263,10 +258,7 @@ Return JSON only:
                 "verificationNotes": f"GPT error: {str(e)}"
             }
 
-    summaries, keyFacts, legalIssues = [], [], []
-    credibilityNotes, recommendations, verificationNotes = [], [], []
-
-      for chunk in chunks:
+    for chunk in chunks:
         parsed = gpt_analyze(chunk)
         summaries.append(parsed.get("summary", ""))
         keyFacts.extend(parsed.get("keyFacts", []))
