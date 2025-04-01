@@ -28,7 +28,7 @@ app = FastAPI(
 def healthcheck():
     return {"status": "ok"}
 
-# === Analyze Legal Question ===
+# === Models ===
 class AnalyzeRequest(BaseModel):
     question: str
     jurisdiction: Optional[str] = None
@@ -71,10 +71,8 @@ Respond in raw JSON only (no markdown), with the following fields:
             temperature=0.3
         )
         content = response.choices[0].message.content.strip()
-        if content.startswith("```json"):
-            content = content.replace("```json", "").strip()
-        if content.endswith("```"):
-            content = content[:-3].strip()
+        if content.startswith("```json"): content = content.replace("```json", "").strip()
+        if content.endswith("```"): content = content[:-3].strip()
         parsed = json.loads(content)
         return AnalyzeResponse(**parsed)
     except Exception as e:
@@ -137,10 +135,8 @@ Return ONLY raw flat JSON — no markdown.
             temperature=0.3
         )
         content = response.choices[0].message.content.strip()
-        if content.startswith("```json"):
-            content = content.replace("```json", "").strip()
-        if content.endswith("```"):
-            content = content[:-3].strip()
+        if content.startswith("```json"): content = content.replace("```json", "").strip()
+        if content.endswith("```"): content = content[:-3].strip()
         parsed = json.loads(content)
         return DraftMotionResponse(**parsed)
     except Exception as e:
@@ -275,9 +271,9 @@ Return JSON only:
         summaries.append(parsed.get("summary", ""))
         keyFacts.extend(parsed.get("keyFacts", []))
         legalIssues.extend(parsed.get("legalIssues", []))
-        credibilityNotes.append(parsed.get("credibilityConcerns", ""))
-        recommendations.append(parsed.get("recommendation", ""))
-        verificationNotes.append(parsed.get("verificationNotes", ""))
+        credibilityNotes.append(parsed.get("credibilityConcerns"))
+        recommendations.append(parsed.get("recommendation"))
+        verificationNotes.append(parsed.get("verificationNotes"))
 
     return SummarizeEvidenceResponse(
         filename=file.filename,
@@ -285,10 +281,10 @@ Return JSON only:
         readableSize=readable_size,
         fileType=ext,
         truncated=truncated,
-        summary=" ".join(filter(None, map(str, summaries))),
+        summary=" ".join(summaries),
         keyFacts=list(set(keyFacts)),
         legalIssues=list(set(legalIssues)),
-        credibilityConcerns=" ".join(filter(None, map(str, credibilityNotes))),
-        recommendation=" ".join(filter(None, map(str, recommendations))),
-        verificationNotes="\n".join(filter(None, map(str, verificationNotes)))
+        credibilityConcerns=" ".join([c for c in credibilityNotes if c]),
+        recommendation=" ".join([r for r in recommendations if r]),
+        verificationNotes="\n".join([v for v in verificationNotes if v])
     )
