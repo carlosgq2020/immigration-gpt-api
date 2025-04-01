@@ -276,15 +276,15 @@ Return JSON only:
         verificationNotes.append(parsed.get("verificationNotes"))
 
     return SummarizeEvidenceResponse(
-        filename=file.filename,
-        sizeInBytes=total_bytes,
-        readableSize=readable_size,
-        fileType=ext,
-        truncated=truncated,
-        summary=" ".join(summaries),
-        keyFacts=list(set(keyFacts)),
-        legalIssues=list(set(legalIssues)),
-        credibilityConcerns=" ".join([c for c in credibilityNotes if c]),
-        recommendation=" ".join([r for r in recommendations if r]),
-        verificationNotes="\n".join([v for v in verificationNotes if v])
-    )
+    filename=file.filename,
+    sizeInBytes=total_bytes,
+    readableSize=readable_size,
+    fileType=ext,
+    truncated=truncated,
+    summary=" ".join(summaries),
+    keyFacts=list(set(keyFacts)),
+    legalIssues=list(set(legalIssues)),
+    credibilityConcerns=" ".join([c or "" for c in credibilityNotes]),
+    recommendation=" ".join([r or "" for r in recommendations]),
+    verificationNotes="\n".join([v or "" for v in verificationNotes])
+)
