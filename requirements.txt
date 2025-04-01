@@ -5,3 +5,4 @@ python-docx
 pymupdf
 python-multipart
 pip==25.0.1
+python-dotenv
