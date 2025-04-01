@@ -266,14 +266,14 @@ Return JSON only:
     summaries, keyFacts, legalIssues = [], [], []
     credibilityNotes, recommendations, verificationNotes = [], [], []
 
-    for chunk in chunks:
-        parsed = gpt_analyze(chunk)
-        summaries.append(parsed.get("summary", ""))
-        keyFacts.extend(parsed.get("keyFacts", []))
-        legalIssues.extend(parsed.get("legalIssues", []))
-        credibilityNotes.append(parsed.get("credibilityConcerns") or "")
-        recommendations.append(parsed.get("recommendation") or "")
-        verificationNotes.append(parsed.get("verificationNotes") or "")
+   for chunk in chunks:
+    parsed = gpt_analyze(chunk)
+    summaries.append(parsed.get("summary", ""))
+    keyFacts.extend(parsed.get("keyFacts", []))
+    legalIssues.extend(parsed.get("legalIssues", []))
+    credibilityNotes.append(parsed.get("credibilityConcerns") or "")
+    recommendations.append(parsed.get("recommendation") or "")
+    verificationNotes.append(parsed.get("verificationNotes") or "")
 
     return SummarizeEvidenceResponse(
     filename=file.filename,
