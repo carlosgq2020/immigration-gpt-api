@@ -23,8 +23,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# === Healthcheck ===
-@app.get("/health", summary="Health check")
+@app.get("/health")
 def healthcheck():
     return {"status": "ok"}
 
@@ -60,6 +59,7 @@ Respond in raw JSON only (no markdown), with the following fields:
 - conflictsOrAmbiguities
 - verificationNotes
 """
+
     try:
         response = client.chat.completions.create(
             model="gpt-4",
@@ -70,11 +70,15 @@ Respond in raw JSON only (no markdown), with the following fields:
             temperature=0.3
         )
         content = response.choices[0].message.content.strip()
-        if content.startswith("```json"): content = content.replace("```json", "").strip()
-        if content.endswith("```"): content = content[:-3].strip()
+        if content.startswith("```json"):
+            content = content.replace("```json", "").strip()
+        if content.endswith("```"):
+            content = content[:-3].strip()
+        print("GPT IRAC Output:", content)
         parsed = json.loads(content)
         return AnalyzeResponse(**parsed)
     except Exception as e:
+        print(f"❌ Analyze endpoint error: {e}")
         return AnalyzeResponse(
             issue="Error generating analysis",
             rule="",
@@ -85,69 +89,7 @@ Respond in raw JSON only (no markdown), with the following fields:
             verificationNotes=f"Exception: {str(e)}"
         )
 
-# === Draft Motion ===
-class DraftMotionRequest(BaseModel):
-    issue: str
-    facts: str
-    jurisdiction: Optional[str] = None
-
-class DraftMotionResponse(BaseModel):
-    heading: str
-    introduction: str
-    legalArgument: str
-    conclusion: str
-    citations: List[str]
-    verificationNotes: str
-
-@app.post("/draftMotion", response_model=DraftMotionResponse)
-def draft_motion(req: DraftMotionRequest):
-    prompt = f"""
-You are a senior U.S. immigration litigator preparing a persuasive legal motion for EOIR or a federal court.
-
-Issue: {req.issue}
-Facts: {req.facts}
-Jurisdiction: {req.jurisdiction or "EOIR / BIA or federal immigration courts"}
-
-Your task:
-- Draft a formal motion, citing relevant law, tailored to the facts and jurisdiction.
-- Cite at least one post-2018 BIA or Circuit Court decision, and explain how it applies.
-- Include statutory or regulatory citations (INA, 8 CFR, USCIS Policy Manual).
-- Avoid generic examples like Matter of Acosta unless contextually required.
-- Use precise legal language and structure.
-
-Return ONLY raw flat JSON — no markdown.
-"""
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a senior U.S. immigration litigator. "
-                        "Respond ONLY in raw, flat JSON with persuasive legal language and strong citations."
-                    )
-                },
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3
-        )
-        content = response.choices[0].message.content.strip()
-        if content.startswith("```json"): content = content.replace("```json", "").strip()
-        if content.endswith("```"): content = content[:-3].strip()
-        parsed = json.loads(content)
-        return DraftMotionResponse(**parsed)
-    except Exception as e:
-        return DraftMotionResponse(
-            heading="Error generating motion",
-            introduction="",
-            legalArgument="",
-            conclusion="",
-            citations=[],
-            verificationNotes=f"Exception: {str(e)}"
-        )
-
-# === Upload & Summarize Evidence ===
+# === Evidence Summarization ===
 class SummarizeEvidenceResponse(BaseModel):
     filename: str
     sizeInBytes: int
@@ -242,13 +184,22 @@ Return JSON only:
                 ],
                 temperature=0.3
             )
+
             result = response.choices[0].message.content.strip()
             if result.startswith("```json"):
                 result = result.replace("```json", "").strip()
             if result.endswith("```"):
                 result = result[:-3].strip()
+
+            # 🔍 Print raw GPT response for debugging
+            print("\n--- GPT RAW RESPONSE START ---")
+            print(result)
+            print("--- GPT RAW RESPONSE END ---\n")
+
             return json.loads(result)
+
         except Exception as e:
+            print(f"❌ GPT error during evidence chunk analysis: {str(e)}")
             return {
                 "summary": "Error during GPT analysis.",
                 "keyFacts": [],
@@ -257,6 +208,9 @@ Return JSON only:
                 "recommendation": "",
                 "verificationNotes": f"GPT error: {str(e)}"
             }
+
+    summaries, keyFacts, legalIssues = [], [], []
+    credibilityNotes, recommendations, verificationNotes = [], [], []
 
     for chunk in chunks:
         parsed = gpt_analyze(chunk)
@@ -276,7 +230,7 @@ Return JSON only:
         summary=" ".join(summaries),
         keyFacts=list(set(keyFacts)),
         legalIssues=list(set(legalIssues)),
-        credibilityConcerns=" ".join([c or "" for c in credibilityNotes]),
-        recommendation=" ".join([r or "" for r in recommendations]),
-        verificationNotes="\n".join([v or "" for v in verificationNotes])
+        credibilityConcerns=" ".join([c for c in credibilityNotes if c]),
+        recommendation=" ".join([r for r in recommendations if r]),
+        verificationNotes="\n".join([v for v in verificationNotes if v])
     )
