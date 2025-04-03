@@ -13,6 +13,8 @@ def extract_toc_from_dict(pdf_path):
         for line in block.get("lines", []):
             text = " ".join(span["text"].strip() for span in line["spans"] if span["text"].strip())
             if text:
+                # Normalize dashes and extra spacing
+                text = text.replace("–", "-").replace("—", "-").replace("  ", " ").strip()
                 lines.append(text)
 
     print("\n🔍 Structured TOC lines:\n")
@@ -32,12 +34,13 @@ def extract_toc_from_dict(pdf_path):
             title_lines = []
             start_page = end_page = None
 
-            # Collect all title lines
             while i < len(lines):
                 candidate = lines[i].strip()
 
-                # Match page range (like "1 – 3" or "151–153")
-                range_match = re.match(r"^(\d+)\s*[–—-]\s*(\d+)$", candidate)
+                # Normalize spacing again just in case
+                candidate = candidate.replace("–", "-").replace("—", "-").replace("  ", " ")
+
+                range_match = re.match(r"^(\d+)\s*-\s*(\d+)$", candidate)
                 single_match = re.match(r"^(\d+)$", candidate)
 
                 if range_match:
@@ -65,6 +68,7 @@ def extract_toc_from_dict(pdf_path):
 
     return toc_entries
 
+# === Entry point ===
 if __name__ == "__main__":
     import argparse
 
