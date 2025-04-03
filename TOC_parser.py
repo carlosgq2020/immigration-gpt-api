@@ -16,7 +16,9 @@ def extract_toc(pdf_path):
     # Combine lines into one string
     toc_text = "\n".join(all_text)
 
-    print("🔍 TOC Text Preview:\n", toc_text[:2000])  # Print first 2,000 chars for debug
+        print("🔍 TOC Text Lines:")
+    for i, line in enumerate(all_text):
+        print(f"{i+1:02}: {line}")
 
     # Adjusted pattern for table-like content with tab and page ranges
     toc_pattern = re.compile(r"([A-Z]{1,3})\.\s+(.*?)\s+(\d{1,3})\s*[-–—]\s*(\d{1,3})")
