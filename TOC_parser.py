@@ -9,7 +9,7 @@ def extract_toc(pdf_path):
         toc_text += page.get_text()
 
     toc_entries = []
-    toc_pattern = re.compile(r"([A-Z]{1,3})\.\s+(.*?)\s+(\d+)\s*[–-]\s*(\d+)", re.DOTALL)
+    toc_pattern = re.compile(r"([A-Z]{1,3})\.\s+(.*?)\s+(\d+)\s+[–—-]\s+(\d+)", re.DOTALL)
 
     for match in toc_pattern.finditer(toc_text):
         tab_label = match.group(1).strip()
