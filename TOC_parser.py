@@ -9,6 +9,7 @@ def extract_toc(pdf_path):
         toc_text += page.get_text()
 
     # 🧪 Debugging: Show first 1000 characters of extracted TOC
+    print("🔍 TOC Text Full:\n", toc_text)
     print("🔍 TOC Text Preview:\n", toc_text[:1000])
 
     toc_entries = []
