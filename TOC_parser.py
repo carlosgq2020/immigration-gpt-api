@@ -8,10 +8,16 @@ def extract_toc(pdf_path):
     for page in doc:
         toc_text += page.get_text()
 
-    print("🔍 TOC Text Preview:\n", toc_text)  # 👈 Add this
+    # 🧪 Debugging: Show first 1000 characters of extracted TOC
+    print("🔍 TOC Text Preview:\n", toc_text[:1000])
 
     toc_entries = []
-    toc_pattern = re.compile(r"([A-Z]{1,3})\.\s+(.*?)\s+(\d+)\s+[–—-]\s+(\d+)", re.DOTALL)
+
+    # This regex matches lines like: A. Some Title 1 – 3
+    toc_pattern = re.compile(
+        r"([A-Z]{1,3})\.\s+(.*?)\s+(\d+)\s+[–—-]\s+(\d+)",
+        re.DOTALL
+    )
 
     for match in toc_pattern.finditer(toc_text):
         tab_label = match.group(1).strip()
