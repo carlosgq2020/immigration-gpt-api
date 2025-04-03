@@ -4,7 +4,8 @@ import re
 
 def extract_toc_from_dict(pdf_path):
     doc = fitz.open(pdf_path)
-    page = doc.load_page(3)  # Page 4 of the PDF
+    page = doc.load_page(3)  # Page 4 (index 3)
+
     text_dict = page.get_text("dict")
 
     all_lines = []
@@ -27,28 +28,37 @@ def extract_toc_from_dict(pdf_path):
         if tab_match:
             tab = tab_match.group(1)
             i += 1
+
+            # Collect all lines until we hit a page range
             title_lines = []
-            page_range = None
+            start_page = end_page = None
 
             while i < len(all_lines):
                 next_line = all_lines[i].strip()
-                page_match = re.search(r"(\d+)\s*[–—-]\s*(\d+)", next_line)
 
+                # Detect page range
+                page_match = re.search(r"(\d+)\s*[–—-]\s*(\d+)", next_line)
                 if page_match:
                     start_page = int(page_match.group(1))
                     end_page = int(page_match.group(2))
-                    page_range = (start_page, end_page)
                     break
-                else:
-                    title_lines.append(next_line)
+
+                # Detect single page
+                single_page_match = re.match(r"^\d+$", next_line)
+                if single_page_match:
+                    start_page = end_page = int(single_page_match.group(0))
+                    break
+
+                # Otherwise it's part of the title
+                title_lines.append(next_line)
                 i += 1
 
-            if page_range:
+            if start_page is not None:
                 toc_entries.append({
                     "tab": tab,
                     "title": " ".join(title_lines).strip(),
-                    "startPage": page_range[0],
-                    "endPage": page_range[1]
+                    "startPage": start_page,
+                    "endPage": end_page
                 })
 
         i += 1
