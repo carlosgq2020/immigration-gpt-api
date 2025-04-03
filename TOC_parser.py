@@ -6,16 +6,21 @@ def extract_toc(pdf_path):
     doc = fitz.open(pdf_path)
     toc_text = ""
     for page in doc:
-        toc_text += page.get_text()
+        blocks = page.get_text("blocks")
+        for b in blocks:
+            toc_text += b[4] + "\n"  # b[4] contains the text block
 
-    # 🔍 Improved regex to match tab labels with single or double-letter (e.g. A. or AA.) and page range
+    # Uncomment this to debug what the raw TOC text looks like
+    with open("toc_raw_debug.txt", "w") as f:
+        f.write(toc_text)
+
+    # Updated pattern to match tab label, title, and optional page range
     toc_pattern = re.compile(
         r"([A-Z]{1,3})\.\s+(.*?)\s+(\d{1,3})\s*(?:[–—-]\s*(\d{1,3}))?",
         re.DOTALL
     )
 
     toc_entries = []
-
     for match in toc_pattern.finditer(toc_text):
         tab = match.group(1)
         title = match.group(2).strip()
