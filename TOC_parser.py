@@ -1,67 +1,54 @@
-import fitz  # PyMuPDF
+import fitz
 import json
 import re
 
-def extract_toc(pdf_path):
+def extract_multiline_toc(pdf_path, page_num=3):
     doc = fitz.open(pdf_path)
-    page = doc[3]  # TOC is on Page 4 (zero-indexed)
-    lines = page.get_text("text").splitlines()
+    lines = doc[page_num].get_text("text").splitlines()
 
-    toc_entries = []
-    current_tab = None
-    current_title = ""
-    collecting = False
+    exhibits = []
+    current = {}
 
-    # Example match: "1 – 3", "123 – 125", "61-63"
     page_range_pattern = re.compile(r"(\d+)\s*[–—-]\s*(\d+)$")
+    single_page_pattern = re.compile(r"^\d+$")
 
-    for i, line in enumerate(lines):
+    for line in lines:
         line = line.strip()
 
-        # Start parsing after TOC header
-        if "TABLE OF CONTENTS" in line:
-            collecting = True
-            continue
-        if not collecting:
-            continue
+        if re.match(r"^[A-Z]{1,3}\.$", line):  # e.g. A., B., AA.
+            if current:
+                exhibits.append(current)
+            current = {"tab": line, "title": "", "startPage": None, "endPage": None}
 
-        # Line that is just "A.", "B.", "CC.", etc.
-        if re.match(r"^[A-Z]{1,3}\.$", line):
-            current_tab = line.rstrip(".")
-            current_title = ""
-            continue
+        elif page_range_pattern.search(line):
+            match = page_range_pattern.search(line)
+            current["startPage"] = int(match.group(1))
+            current["endPage"] = int(match.group(2))
+        
+        elif single_page_pattern.match(line):
+            current["startPage"] = int(line)
+            current["endPage"] = int(line)
 
-        # Check if the line is a standalone page range
-        match = page_range_pattern.match(line)
-        if match and current_tab:
-            start_page = int(match.group(1))
-            end_page = int(match.group(2))
+        elif current:
+            current["title"] += (" " + line).strip()
 
-            toc_entries.append({
-                "tab": current_tab,
-                "title": current_title.strip(),
-                "startPage": start_page,
-                "endPage": end_page
-            })
-            current_tab = None
-            current_title = ""
-        else:
-            current_title += " " + line if current_title else line
+    if current:
+        exhibits.append(current)
 
-    return toc_entries
+    return exhibits
+
 
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Parse TOC PDF with labeled tabs")
+    parser = argparse.ArgumentParser(description="Parse TOC with labeled tabs and multiline titles")
     parser.add_argument("pdf_path", help="Path to the TOC PDF file")
-    parser.add_argument("--output", default="toc_output.json", help="Path to save JSON")
+    parser.add_argument("--output", default="toc_output.json", help="Path to save output JSON")
 
     args = parser.parse_args()
-
-    toc_data = extract_toc(args.pdf_path)
+    toc = extract_multiline_toc(args.pdf_path)
 
     with open(args.output, "w") as f:
-        json.dump(toc_data, f, indent=2)
+        json.dump(toc, f, indent=2)
 
-    print(f"✅ TOC parsed: {len(toc_data)} items saved to {args.output}")
+    print(f"✅ TOC parsed: {len(toc)} exhibits saved to {args.output}")
