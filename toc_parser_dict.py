@@ -4,13 +4,10 @@ import re
 
 def extract_toc_from_dict(pdf_path):
     doc = fitz.open(pdf_path)
-    page = doc.load_page(3)  # Page 4 = TOC
-    toc_entries = []
-
+    page = doc.load_page(3)  # TOC page (Page 4)
     text_dict = page.get_text("dict")
-
-    # Flatten all lines into sequence of strings
     all_lines = []
+
     for block in text_dict["blocks"]:
         for line in block.get("lines", []):
             line_text = " ".join([span["text"].strip() for span in line["spans"] if span["text"].strip()])
@@ -21,32 +18,41 @@ def extract_toc_from_dict(pdf_path):
     for i, line in enumerate(all_lines):
         print(f"[{i}] {line}")
 
-    # Try parsing TOC from reconstructed lines
+    toc_entries = []
     i = 0
     while i < len(all_lines):
-        line = all_lines[i]
-        match = re.match(r"^([A-Z]{1,3})\.\s+(.*)", line)
-        if match:
-            tab = match.group(1)
-            title = match.group(2)
+        line = all_lines[i].strip()
 
-            # Look ahead for a line that has a page range
-            if i + 1 < len(all_lines):
-                next_line = all_lines[i + 1]
+        # Match something like "A." or "AA." or "K"
+        tab_match = re.match(r"^([A-Z]{1,3})(?:\.)?$", line)
+        if tab_match:
+            tab = tab_match.group(1)
+
+            # Gather title lines
+            title_lines = []
+            i += 1
+            while i < len(all_lines):
+                next_line = all_lines[i].strip()
                 page_match = re.search(r"(\d+)\s*[–—-]\s*(\d+)", next_line)
                 if page_match:
-                    start = int(page_match.group(1))
-                    end = int(page_match.group(2))
+                    start_page = int(page_match.group(1))
+                    end_page = int(page_match.group(2))
+                    title = " ".join(title_lines).strip()
                     toc_entries.append({
                         "tab": tab,
                         "title": title,
-                        "startPage": start,
-                        "endPage": end
+                        "startPage": start_page,
+                        "endPage": end_page
                     })
-                    i += 1  # skip page line
-        i += 1
+                    break
+                else:
+                    title_lines.append(next_line)
+                i += 1
+        else:
+            i += 1
 
     return toc_entries
+
 
 if __name__ == "__main__":
     import argparse
