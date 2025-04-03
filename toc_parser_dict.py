@@ -1,13 +1,13 @@
-import fitz
+import fitz  # PyMuPDF
 import json
 import re
 
 def extract_toc_from_dict(pdf_path):
     doc = fitz.open(pdf_path)
-    page = doc.load_page(3)  # TOC is page 4 (0-indexed)
+    page = doc.load_page(3)  # Page 4 of the PDF
     text_dict = page.get_text("dict")
-    all_lines = []
 
+    all_lines = []
     for block in text_dict["blocks"]:
         for line in block.get("lines", []):
             text = " ".join(span["text"].strip() for span in line["spans"] if span["text"].strip())
@@ -26,37 +26,41 @@ def extract_toc_from_dict(pdf_path):
 
         if tab_match:
             tab = tab_match.group(1)
-            title_lines = []
             i += 1
+            title_lines = []
+            page_range = None
+
             while i < len(all_lines):
-                line = all_lines[i].strip()
-                page_range_match = re.search(r"(\d+)\s*[–—-]\s*(\d+)", line)
-                if page_range_match:
-                    start_page = int(page_range_match.group(1))
-                    end_page = int(page_range_match.group(2))
-                    title = " ".join(title_lines).strip()
-                    toc_entries.append({
-                        "tab": tab,
-                        "title": title,
-                        "startPage": start_page,
-                        "endPage": end_page
-                    })
+                next_line = all_lines[i].strip()
+                page_match = re.search(r"(\d+)\s*[–—-]\s*(\d+)", next_line)
+
+                if page_match:
+                    start_page = int(page_match.group(1))
+                    end_page = int(page_match.group(2))
+                    page_range = (start_page, end_page)
                     break
                 else:
-                    title_lines.append(line)
+                    title_lines.append(next_line)
                 i += 1
-        else:
-            i += 1
+
+            if page_range:
+                toc_entries.append({
+                    "tab": tab,
+                    "title": " ".join(title_lines).strip(),
+                    "startPage": page_range[0],
+                    "endPage": page_range[1]
+                })
+
+        i += 1
 
     return toc_entries
-
 
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Extract TOC from structured PDF layout")
+    parser = argparse.ArgumentParser(description="Parse TOC with tab labels from structured PDF")
     parser.add_argument("pdf_path", help="Path to the TOC PDF file")
-    parser.add_argument("--output", default="toc_output.json", help="Path to save JSON")
+    parser.add_argument("--output", default="toc_output.json", help="Output JSON file")
 
     args = parser.parse_args()
     toc_data = extract_toc_from_dict(args.pdf_path)
