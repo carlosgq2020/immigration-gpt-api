@@ -8,6 +8,8 @@ def extract_toc(pdf_path):
     for page in doc:
         toc_text += page.get_text()
 
+    print("🔍 TOC Text Preview:\n", toc_text)  # 👈 Add this
+
     toc_entries = []
     toc_pattern = re.compile(r"([A-Z]{1,3})\.\s+(.*?)\s+(\d+)\s+[–—-]\s+(\d+)", re.DOTALL)
 
