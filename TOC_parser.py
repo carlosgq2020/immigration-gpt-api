@@ -7,28 +7,25 @@ def extract_toc(pdf_path):
     toc_text = ""
     for page in doc:
         blocks = page.get_text("blocks")
-        for b in blocks:
-            toc_text += b[4] + "\n"  # b[4] contains the text block
+        for block in blocks:
+            line = block[4].strip()
+            if line:
+                toc_text += line + "\n"
 
-    # Uncomment this to debug what the raw TOC text looks like
-    with open("toc_raw_debug.txt", "w") as f:
-        f.write(toc_text)
-
-    # Updated pattern to match tab label, title, and optional page range
-    toc_pattern = re.compile(
-        r"([A-Z]{1,3})\.\s+(.*?)\s+(\d{1,3})\s*(?:[–—-]\s*(\d{1,3}))?",
-        re.DOTALL
-    )
+    print("🔍 TOC Text Extracted:\n", toc_text)
 
     toc_entries = []
+    # Updated pattern: A. title text 1 – 3
+    toc_pattern = re.compile(r"^([A-Z]{1,3})\.\s+(.*?)\s+(\d+)\s+[–—-]\s+(\d+)$", re.MULTILINE)
+
     for match in toc_pattern.finditer(toc_text):
-        tab = match.group(1)
+        tab_label = match.group(1).strip()
         title = match.group(2).strip()
         start_page = int(match.group(3))
-        end_page = int(match.group(4)) if match.group(4) else start_page
+        end_page = int(match.group(4))
 
         toc_entries.append({
-            "tab": tab,
+            "tab": tab_label,
             "title": title,
             "startPage": start_page,
             "endPage": end_page
