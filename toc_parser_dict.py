@@ -4,15 +4,15 @@ import re
 
 def extract_toc_from_dict(pdf_path):
     doc = fitz.open(pdf_path)
-    page = doc.load_page(3)  # TOC page (Page 4)
+    page = doc.load_page(3)  # TOC is page 4 (0-indexed)
     text_dict = page.get_text("dict")
     all_lines = []
 
     for block in text_dict["blocks"]:
         for line in block.get("lines", []):
-            line_text = " ".join([span["text"].strip() for span in line["spans"] if span["text"].strip()])
-            if line_text:
-                all_lines.append(line_text)
+            text = " ".join(span["text"].strip() for span in line["spans"] if span["text"].strip())
+            if text:
+                all_lines.append(text)
 
     print("🔍 Structured TOC lines:\n")
     for i, line in enumerate(all_lines):
@@ -22,21 +22,18 @@ def extract_toc_from_dict(pdf_path):
     i = 0
     while i < len(all_lines):
         line = all_lines[i].strip()
-
-        # Match something like "A." or "AA." or "K"
         tab_match = re.match(r"^([A-Z]{1,3})(?:\.)?$", line)
+
         if tab_match:
             tab = tab_match.group(1)
-
-            # Gather title lines
             title_lines = []
             i += 1
             while i < len(all_lines):
-                next_line = all_lines[i].strip()
-                page_match = re.search(r"(\d+)\s*[–—-]\s*(\d+)", next_line)
-                if page_match:
-                    start_page = int(page_match.group(1))
-                    end_page = int(page_match.group(2))
+                line = all_lines[i].strip()
+                page_range_match = re.search(r"(\d+)\s*[–—-]\s*(\d+)", line)
+                if page_range_match:
+                    start_page = int(page_range_match.group(1))
+                    end_page = int(page_range_match.group(2))
                     title = " ".join(title_lines).strip()
                     toc_entries.append({
                         "tab": tab,
@@ -46,7 +43,7 @@ def extract_toc_from_dict(pdf_path):
                     })
                     break
                 else:
-                    title_lines.append(next_line)
+                    title_lines.append(line)
                 i += 1
         else:
             i += 1
