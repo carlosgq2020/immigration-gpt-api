@@ -1,20 +1,18 @@
-import fitz  # PyMuPDF
+import fitz
 import json
 import re
 
-def extract_toc_from_dict(pdf_path):
+def extract_toc_from_lines(pdf_path):
     doc = fitz.open(pdf_path)
-    page = doc.load_page(3)  # Page 4 (index 3)
-
+    page = doc.load_page(3)  # TOC is on page 4 (0-indexed)
     text_dict = page.get_text("dict")
-    lines = []
 
+    lines = []
     for block in text_dict["blocks"]:
         for line in block.get("lines", []):
-            text = " ".join(span["text"].strip() for span in line["spans"] if span["text"].strip())
+            text = " ".join(span["text"] for span in line["spans"]).strip()
             if text:
-                # Normalize dashes and extra spacing
-                text = text.replace("–", "-").replace("—", "-").replace("  ", " ").strip()
+                text = text.replace("–", "-").replace("—", "-")
                 lines.append(text)
 
     print("\n🔍 Structured TOC lines:\n")
@@ -23,62 +21,57 @@ def extract_toc_from_dict(pdf_path):
 
     toc_entries = []
     i = 0
+
     while i < len(lines):
         line = lines[i].strip()
 
+        # Match tab label like A. or AA. or Z.
         tab_match = re.match(r"^([A-Z]{1,3})(?:\.)?$", line)
         if tab_match:
             tab = tab_match.group(1)
             i += 1
 
-            title_lines = []
-            start_page = end_page = None
-
+            # Collect title lines until we find page range
+            title_parts = []
             while i < len(lines):
-                candidate = lines[i].strip()
-
-                # Normalize spacing again just in case
-                candidate = candidate.replace("–", "-").replace("—", "-").replace("  ", " ")
-
-                range_match = re.match(r"^(\d+)\s*-\s*(\d+)$", candidate)
-                single_match = re.match(r"^(\d+)$", candidate)
+                current_line = lines[i].strip()
+                range_match = re.match(r"^(\d+)\s*-\s*(\d+)$", current_line)
+                single_page_match = re.match(r"^(\d+)$", current_line)
 
                 if range_match:
                     start_page = int(range_match.group(1))
                     end_page = int(range_match.group(2))
                     i += 1
                     break
-                elif single_match:
-                    start_page = end_page = int(single_match.group(1))
+                elif single_page_match:
+                    start_page = end_page = int(single_page_match.group(1))
                     i += 1
                     break
                 else:
-                    title_lines.append(candidate)
+                    title_parts.append(current_line)
                     i += 1
 
-            if start_page is not None:
-                toc_entries.append({
-                    "tab": tab,
-                    "title": " ".join(title_lines),
-                    "startPage": start_page,
-                    "endPage": end_page
-                })
+            title = " ".join(title_parts)
+            toc_entries.append({
+                "tab": tab,
+                "title": title,
+                "startPage": start_page,
+                "endPage": end_page
+            })
         else:
             i += 1
 
     return toc_entries
 
-# === Entry point ===
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Parse TOC from PDF with tab labels")
+    parser = argparse.ArgumentParser(description="Parse TOC from PDF lines")
     parser.add_argument("pdf_path", help="Path to the TOC PDF file")
     parser.add_argument("--output", default="toc_output.json", help="Path to save JSON")
 
     args = parser.parse_args()
-
-    toc_data = extract_toc_from_dict(args.pdf_path)
+    toc_data = extract_toc_from_lines(args.pdf_path)
 
     with open(args.output, "w") as f:
         json.dump(toc_data, f, indent=2)
