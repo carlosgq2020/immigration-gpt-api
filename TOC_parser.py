@@ -1,37 +1,51 @@
-import re
 import fitz  # PyMuPDF
 import json
+import re
 
 def extract_toc(pdf_path):
     doc = fitz.open(pdf_path)
-    toc_text = ""
-    for page in doc:
-        blocks = page.get_text("blocks")
-        for block in blocks:
-            line = block[4].strip()
-            if line:
-                toc_text += line + "\n"
+    page = doc[3]  # TOC is on Page 4 (zero-based)
+    blocks = page.get_text("blocks")
 
-    print("🔍 TOC Text Extracted:\n", toc_text)
-
+    lines = [block[4].strip() for block in blocks if block[4].strip()]
+    
     toc_entries = []
-    # Updated pattern: A. title text 1 – 3
-    toc_pattern = re.compile(r"^([A-Z]{1,3})\.\s+(.*?)\s+(\d+)\s+[–—-]\s+(\d+)$", re.MULTILINE)
+    i = 0
 
-    for match in toc_pattern.finditer(toc_text):
-        tab_label = match.group(1).strip()
-        title = match.group(2).strip()
-        start_page = int(match.group(3))
-        end_page = int(match.group(4))
+    while i < len(lines):
+        line = lines[i]
+        
+        # Match something like "A.", "BB.", etc.
+        match = re.match(r"^([A-Z]{1,3})\.\s*(.*)", line)
+        if match:
+            tab = match.group(1)
+            title = match.group(2).strip()
 
-        toc_entries.append({
-            "tab": tab_label,
-            "title": title,
-            "startPage": start_page,
-            "endPage": end_page
-        })
+            # If the title got split across lines (no page numbers yet)
+            j = i + 1
+            while j < len(lines) and not re.search(r"\d+\s*[–—-]\s*\d+", lines[j]):
+                title += " " + lines[j]
+                j += 1
+
+            # Now j should be the line with page numbers like "12 – 17"
+            if j < len(lines):
+                page_range_match = re.search(r"(\d+)\s*[–—-]\s*(\d+)", lines[j])
+                if page_range_match:
+                    start_page = int(page_range_match.group(1))
+                    end_page = int(page_range_match.group(2))
+
+                    toc_entries.append({
+                        "tab": tab,
+                        "title": title,
+                        "startPage": start_page,
+                        "endPage": end_page
+                    })
+                    i = j + 1
+                    continue
+        i += 1
 
     return toc_entries
+
 
 if __name__ == "__main__":
     import argparse
@@ -41,10 +55,9 @@ if __name__ == "__main__":
     parser.add_argument("--output", default="toc_output.json", help="Path to save JSON")
 
     args = parser.parse_args()
-
     toc_data = extract_toc(args.pdf_path)
 
     with open(args.output, "w") as f:
         json.dump(toc_data, f, indent=2)
 
-    print(f"✅ TOC parsed: {len(toc_data)} items saved to {args.output}")
+    print(f"✅ TOC parsed: {len(toc_data)} entries saved to {args.output}")
