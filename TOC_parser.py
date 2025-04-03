@@ -4,48 +4,51 @@ import re
 
 def extract_toc(pdf_path):
     doc = fitz.open(pdf_path)
-    page = doc[3]  # TOC is on Page 4 (zero-based)
-    blocks = page.get_text("blocks")
+    page = doc[3]  # TOC is on page 4
+    lines = page.get_text("text").splitlines()
 
-    lines = [block[4].strip() for block in blocks if block[4].strip()]
-    
     toc_entries = []
-    i = 0
+    current_tab = None
+    current_title = ""
+    collecting = False
 
-    while i < len(lines):
-        line = lines[i]
-        
-        # Match something like "A.", "BB.", etc.
-        match = re.match(r"^([A-Z]{1,3})\.\s*(.*)", line)
+    page_range_pattern = re.compile(r"(\d+)\s*[–—-]\s*(\d+)$")  # Matches: 12 – 13 or 12-13
+
+    for i, line in enumerate(lines):
+        line = line.strip()
+
+        # Start collecting when we pass the TABLE OF CONTENTS marker
+        if "TABLE OF CONTENTS" in line:
+            collecting = True
+            continue
+        if not collecting:
+            continue
+
+        # Line like: "A." or "AA."
+        if re.match(r"^[A-Z]{1,3}\.$", line):
+            current_tab = line.rstrip(".")
+            current_title = ""
+            continue
+
+        # Try to extract a page range from the current line
+        match = page_range_pattern.search(line)
         if match:
-            tab = match.group(1)
-            title = match.group(2).strip()
+            start_page = int(match.group(1))
+            end_page = int(match.group(2))
+            title = current_title.strip() if current_title else line[:match.start()].strip()
 
-            # If the title got split across lines (no page numbers yet)
-            j = i + 1
-            while j < len(lines) and not re.search(r"\d+\s*[–—-]\s*\d+", lines[j]):
-                title += " " + lines[j]
-                j += 1
-
-            # Now j should be the line with page numbers like "12 – 17"
-            if j < len(lines):
-                page_range_match = re.search(r"(\d+)\s*[–—-]\s*(\d+)", lines[j])
-                if page_range_match:
-                    start_page = int(page_range_match.group(1))
-                    end_page = int(page_range_match.group(2))
-
-                    toc_entries.append({
-                        "tab": tab,
-                        "title": title,
-                        "startPage": start_page,
-                        "endPage": end_page
-                    })
-                    i = j + 1
-                    continue
-        i += 1
+            toc_entries.append({
+                "tab": current_tab,
+                "title": title,
+                "startPage": start_page,
+                "endPage": end_page
+            })
+            current_tab = None
+            current_title = ""
+        else:
+            current_title += " " + line if current_title else line
 
     return toc_entries
-
 
 if __name__ == "__main__":
     import argparse
@@ -55,9 +58,10 @@ if __name__ == "__main__":
     parser.add_argument("--output", default="toc_output.json", help="Path to save JSON")
 
     args = parser.parse_args()
+
     toc_data = extract_toc(args.pdf_path)
 
     with open(args.output, "w") as f:
         json.dump(toc_data, f, indent=2)
 
-    print(f"✅ TOC parsed: {len(toc_data)} entries saved to {args.output}")
+    print(f"✅ TOC parsed: {len(toc_data)} items saved to {args.output}")
