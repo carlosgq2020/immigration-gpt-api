@@ -7,72 +7,73 @@ def extract_toc_from_dict(pdf_path):
     page = doc.load_page(3)  # Page 4 (index 3)
 
     text_dict = page.get_text("dict")
+    lines = []
 
-    all_lines = []
     for block in text_dict["blocks"]:
         for line in block.get("lines", []):
             text = " ".join(span["text"].strip() for span in line["spans"] if span["text"].strip())
             if text:
-                all_lines.append(text)
+                lines.append(text)
 
-    print("🔍 Structured TOC lines:\n")
-    for i, line in enumerate(all_lines):
+    print("\n🔍 Structured TOC lines:\n")
+    for i, line in enumerate(lines):
         print(f"[{i}] {line}")
 
     toc_entries = []
     i = 0
-    while i < len(all_lines):
-        line = all_lines[i].strip()
-        tab_match = re.match(r"^([A-Z]{1,3})(?:\.)?$", line)
+    while i < len(lines):
+        line = lines[i].strip()
 
+        tab_match = re.match(r"^([A-Z]{1,3})(?:\.)?$", line)
         if tab_match:
             tab = tab_match.group(1)
             i += 1
 
-            # Collect all lines until we hit a page range
             title_lines = []
             start_page = end_page = None
 
-            while i < len(all_lines):
-                next_line = all_lines[i].strip()
+            # Collect all title lines
+            while i < len(lines):
+                candidate = lines[i].strip()
 
-                # Detect page range
-                page_match = re.search(r"(\d+)\s*[–—-]\s*(\d+)", next_line)
-                if page_match:
-                    start_page = int(page_match.group(1))
-                    end_page = int(page_match.group(2))
+                # Match page range (like "1 – 3" or "151–153")
+                range_match = re.match(r"^(\d+)\s*[–—-]\s*(\d+)$", candidate)
+                single_match = re.match(r"^(\d+)$", candidate)
+
+                if range_match:
+                    start_page = int(range_match.group(1))
+                    end_page = int(range_match.group(2))
+                    i += 1
                     break
-
-                # Detect single page
-                single_page_match = re.match(r"^\d+$", next_line)
-                if single_page_match:
-                    start_page = end_page = int(single_page_match.group(0))
+                elif single_match:
+                    start_page = end_page = int(single_match.group(1))
+                    i += 1
                     break
-
-                # Otherwise it's part of the title
-                title_lines.append(next_line)
-                i += 1
+                else:
+                    title_lines.append(candidate)
+                    i += 1
 
             if start_page is not None:
                 toc_entries.append({
                     "tab": tab,
-                    "title": " ".join(title_lines).strip(),
+                    "title": " ".join(title_lines),
                     "startPage": start_page,
                     "endPage": end_page
                 })
-
-        i += 1
+        else:
+            i += 1
 
     return toc_entries
 
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Parse TOC with tab labels from structured PDF")
+    parser = argparse.ArgumentParser(description="Parse TOC from PDF with tab labels")
     parser.add_argument("pdf_path", help="Path to the TOC PDF file")
-    parser.add_argument("--output", default="toc_output.json", help="Output JSON file")
+    parser.add_argument("--output", default="toc_output.json", help="Path to save JSON")
 
     args = parser.parse_args()
+
     toc_data = extract_toc_from_dict(args.pdf_path)
 
     with open(args.output, "w") as f:
