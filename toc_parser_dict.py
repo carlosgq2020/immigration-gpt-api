@@ -7,7 +7,7 @@ def extract_toc(pdf_path):
     doc = fitz.open(pdf_path)
     toc_lines = []
     for i, page in enumerate(doc):
-        if i == 3:  # TOC appears on page 4 (index starts at 0)
+        if i == 3:  # Page 4 is where the TOC starts
             lines = page.get_text("text").splitlines()
             toc_lines = [line.strip() for line in lines if line.strip()]
             break
@@ -32,13 +32,13 @@ def extract_toc(pdf_path):
                 title_lines.append(toc_lines[i])
                 i += 1
 
-            # Get page numbers (range or single)
+            # Get page numbers
             if i < len(toc_lines):
                 page_line = toc_lines[i].strip()
-                match = re.match(r"^(\d+)\s*[–—-]?\s*(\d*)$", page_line)
-                if match:
-                    start_page = int(match.group(1))
-                    end_page = int(match.group(2)) if match.group(2) else start_page
+                page_match = re.match(r"^(\d+)\s*[–—-]?\s*(\d*)$", page_line)
+                if page_match:
+                    start_page = int(page_match.group(1))
+                    end_page = int(page_match.group(2)) if page_match.group(2) else start_page
                     title = " ".join(title_lines)
                     toc_entries.append({
                         "tab": tab,
