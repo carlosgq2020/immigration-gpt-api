@@ -49,7 +49,8 @@ def extract_toc(pdf_path):
                 i += 1
         else:
             i += 1
-
+if not toc_entries:
+    print("⚠️ No TOC entries matched. Check line spacing or patterns.")
     return toc_entries
 
 if __name__ == "__main__":
