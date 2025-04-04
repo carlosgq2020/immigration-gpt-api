@@ -4,6 +4,13 @@ import os
 import argparse
 import re
 import hashlib
+import re
+
+def sanitize_filename(title, max_length=100):
+    # Replace non-alphanumeric characters with underscores
+    safe = re.sub(r'[^a-zA-Z0-9]+', '_', title)
+    # Truncate to max_length and strip trailing underscores
+    return safe[:max_length].rstrip('_')
 
 def safe_filename(tab, title, max_length=100):
     # Remove URLs and non-filename-safe characters
@@ -40,7 +47,7 @@ def segment_pdf_by_toc(input_pdf, toc_json_path, output_dir):
         for page_num in range(start, end):
             subdoc.insert_pdf(doc, from_page=page_num, to_page=page_num)
 
-        filename = safe_filename(entry["tab"], entry["title"])
+        filename = f"{entry['tab']}_{sanitize_filename(entry['title'])}.pdf"
         filepath = os.path.join(output_dir, filename)
         subdoc.save(filepath)
         segments.append({
