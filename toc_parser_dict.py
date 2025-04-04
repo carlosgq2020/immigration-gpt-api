@@ -1,81 +1,58 @@
- import fitz  # PyMuPDF
 import re
+import fitz  # PyMuPDF
 import json
-import sys
+import argparse
 
 def extract_toc(pdf_path):
     doc = fitz.open(pdf_path)
-    lines = []
-    toc_page = doc[3]  # TOC is on page 4 (0-indexed)
-    for block in toc_page.get_text("blocks"):
-        lines.extend(block[4].splitlines())
+    toc_lines = []
+    for i, page in enumerate(doc):
+        if i == 3:  # TOC appears on page 4 (index starts at 0)
+            lines = page.get_text("text").splitlines()
+            toc_lines = [line.strip() for line in lines if line.strip()]
+            break
 
-    lines = [line.strip() for line in lines if line.strip()]
-    print("\n🔍 Structured TOC lines:\n")
-    for i, line in enumerate(lines):
-        print(f"[{i}] {line}")
+    print("🔍 Structured TOC lines:\n")
+    for idx, line in enumerate(toc_lines):
+        print(f"[{idx}] {line}")
 
-        toc_entries = []
+    toc_entries = []
     i = 0
-    while i < len(lines):
-        line = lines[i]
+    while i < len(toc_lines):
+        line = toc_lines[i]
 
-        # Detect tab label (e.g., A., B., C.)
+        # Match tab marker like "A.", "B.", ..., "ZZZ."
         if re.match(r"^[A-Z]{1,3}\.$", line.strip()):
-            tab = line.strip().strip('.')
+            tab = line.strip().strip(".")
 
             # Collect title lines
+            title_lines = []
             i += 1
-            title_parts = []
-            while i < len(lines) and not re.match(r"^\d+\s*[–—-]\s*\d+$", lines[i]) and not re.match(r"^\d+$", lines[i]):
-                title_parts.append(lines[i])
+            while i < len(toc_lines) and not re.match(r"^\d+\s*[–—-]?\s*\d*$", toc_lines[i]):
+                title_lines.append(toc_lines[i])
                 i += 1
 
-            # Page range
-            if i < len(lines) and (re.match(r"^\d+\s*[–—-]\s*\d+$", lines[i]) or re.match(r"^\d+$", lines[i])):
-                page_text = lines[i]
+            # Get page numbers (range or single)
+            if i < len(toc_lines):
+                page_line = toc_lines[i].strip()
+                match = re.match(r"^(\d+)\s*[–—-]?\s*(\d*)$", page_line)
+                if match:
+                    start_page = int(match.group(1))
+                    end_page = int(match.group(2)) if match.group(2) else start_page
+                    title = " ".join(title_lines)
+                    toc_entries.append({
+                        "tab": tab,
+                        "title": title,
+                        "startPage": start_page,
+                        "endPage": end_page
+                    })
                 i += 1
-
-                # Handle 1-3 or just "7"
-                if '–' in page_text or '-' in page_text:
-                    start, end = re.split(r"\s*[–—-]\s*", page_text)
-                    start_page = int(start)
-                    end_page = int(end)
-                else:
-                    start_page = end_page = int(page_text)
-
-                toc_entries.append({
-                    "tab": tab,
-                    "title": " ".join(title_parts),
-                    "startPage": start_page,
-                    "endPage": end_page
-                })
-        else:
-            i += 1
-
-            # Parse page range
-            if page_range:
-                if "–" in page_range or "-" in page_range:
-                    pages = re.split(r"\s*[–—-]\s*", page_range)
-                    start_page = int(pages[0])
-                    end_page = int(pages[1])
-                else:
-                    start_page = end_page = int(page_range)
-
-                toc_entries.append({
-                    "tab": tab,
-                    "title": " ".join(title_parts),
-                    "startPage": start_page,
-                    "endPage": end_page
-                })
         else:
             i += 1
 
     return toc_entries
 
 if __name__ == "__main__":
-    import argparse
-
     parser = argparse.ArgumentParser(description="Parse TOC PDF with labeled tabs")
     parser.add_argument("pdf_path", help="Path to the TOC PDF file")
     parser.add_argument("--output", default="toc_output.json", help="Path to save JSON")
