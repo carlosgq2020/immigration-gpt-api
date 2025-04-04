@@ -2,7 +2,15 @@ import fitz
 import json
 import os
 import argparse
+import re
 
+def safe_filename(tab, title, max_length=100):
+    # Slugify-like cleanup
+    clean = re.sub(r"[^\w\s-]", "", title)           # Remove special chars
+    clean = re.sub(r"[\s_-]+", "_", clean).strip("_")  # Normalize spacing
+    base = f"{tab}_{clean}"
+    return base[:max_length] + ".pdf"  # Truncate if too long
+    
 def sanitize_filename(text):
     return "".join(c if c.isalnum() or c in (" ", "-", "_") else "_" for c in text).strip().replace(" ", "_")
 
@@ -24,7 +32,7 @@ def segment_pdf_by_toc(input_pdf, toc_json_path, output_dir):
         for page_num in range(start, end):
             subdoc.insert_pdf(doc, from_page=page_num, to_page=page_num)
 
-        filename = f"{entry['tab']}_{sanitize_filename(entry['title'])}.pdf"
+        filename = safe_filename(entry["tab"], entry["title"])
         filepath = os.path.join(output_dir, filename)
         subdoc.save(filepath)
         segments.append({
