@@ -3,19 +3,21 @@ import json
 import os
 import argparse
 import re
-import os
+import hashlib
 
 def safe_filename(tab, title, max_length=100):
-    # Clean title: remove URLs, special characters, extra spaces
-    title_clean = re.sub(r"https?://\S+", "", title)
-    title_clean = re.sub(r"[^\w\s-]", "", title_clean)
-    title_clean = re.sub(r"[\s_-]+", "_", title_clean).strip("_")
+    # Remove URLs and non-filename-safe characters
+    title = re.sub(r'https?://\S+', '', title)
+    title = re.sub(r'[^\w\s-]', '', title)
+    title = re.sub(r'[\s_-]+', '_', title).strip('_')
 
-    # Combine tab and title, then truncate
-    filename_base = f"{tab}_{title_clean}"
-    filename = filename_base[:max_length] + ".pdf"
+    # Truncate intelligently and hash long titles
+    filename_base = f"{tab}_{title}"
+    if len(filename_base) > max_length:
+        hash_suffix = hashlib.sha1(filename_base.encode()).hexdigest()[:8]
+        filename_base = f"{filename_base[:max_length-9]}_{hash_suffix}"
 
-    return filename
+    return filename_base + ".pdf"
     
 def sanitize_filename(text):
     return "".join(c if c.isalnum() or c in (" ", "-", "_") else "_" for c in text).strip().replace(" ", "_")
