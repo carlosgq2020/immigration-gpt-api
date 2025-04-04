@@ -3,16 +3,19 @@ import json
 import os
 import argparse
 import re
+import os
 
 def safe_filename(tab, title, max_length=100):
-    # Remove unwanted characters and normalize
-    title_clean = re.sub(r"[^\w\s-]", "", title)
+    # Clean title: remove URLs, special characters, extra spaces
+    title_clean = re.sub(r"https?://\S+", "", title)
+    title_clean = re.sub(r"[^\w\s-]", "", title_clean)
     title_clean = re.sub(r"[\s_-]+", "_", title_clean).strip("_")
 
-    # Compose and truncate the final filename
-    base = f"{tab}_{title_clean}"
-    truncated = base[:max_length]
-    return f"{truncated}.pdf"
+    # Combine tab and title, then truncate
+    filename_base = f"{tab}_{title_clean}"
+    filename = filename_base[:max_length] + ".pdf"
+
+    return filename
     
 def sanitize_filename(text):
     return "".join(c if c.isalnum() or c in (" ", "-", "_") else "_" for c in text).strip().replace(" ", "_")
