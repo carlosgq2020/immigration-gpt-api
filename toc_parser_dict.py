@@ -35,7 +35,7 @@ def extract_toc(pdf_path):
             # Get page numbers
             if i < len(toc_lines):
                 page_line = toc_lines[i].strip()
-                page_match = re.match(r"^(\d+)\s*[–—-]?\s*(\d*)$", page_line)
+                page_match = re.match(r"^(\d+)\s*[–—-]?\s*(\d+)?$", page_line)
                 if page_match:
                     start_page = int(page_match.group(1))
                     end_page = int(page_match.group(2)) if page_match.group(2) else start_page
