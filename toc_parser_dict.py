@@ -15,31 +15,43 @@ def extract_toc(pdf_path):
     for i, line in enumerate(lines):
         print(f"[{i}] {line}")
 
-    toc_entries = []
+        toc_entries = []
     i = 0
     while i < len(lines):
         line = lines[i]
 
-        # Look for label (e.g., "A.")
-        match = re.match(r"^([A-Z]{1,3})\.$", line)
-        if match:
-            tab = match.group(1)
-            title_parts = []
-            page_range = None
+        # Detect tab label (e.g., A., B., C.)
+        if re.match(r"^[A-Z]{1,3}\.$", line.strip()):
+            tab = line.strip().strip('.')
 
             # Collect title lines
             i += 1
+            title_parts = []
             while i < len(lines) and not re.match(r"^\d+\s*[–—-]\s*\d+$", lines[i]) and not re.match(r"^\d+$", lines[i]):
                 title_parts.append(lines[i])
                 i += 1
 
-            # Grab page range line
+            # Page range
             if i < len(lines) and (re.match(r"^\d+\s*[–—-]\s*\d+$", lines[i]) or re.match(r"^\d+$", lines[i])):
-                page_range = lines[i]
+                page_text = lines[i]
                 i += 1
-            else:
-                i += 1
-                continue
+
+                # Handle 1-3 or just "7"
+                if '–' in page_text or '-' in page_text:
+                    start, end = re.split(r"\s*[–—-]\s*", page_text)
+                    start_page = int(start)
+                    end_page = int(end)
+                else:
+                    start_page = end_page = int(page_text)
+
+                toc_entries.append({
+                    "tab": tab,
+                    "title": " ".join(title_parts),
+                    "startPage": start_page,
+                    "endPage": end_page
+                })
+        else:
+            i += 1
 
             # Parse page range
             if page_range:
