@@ -5,11 +5,14 @@ import argparse
 import re
 
 def safe_filename(tab, title, max_length=100):
-    # Slugify-like cleanup
-    clean = re.sub(r"[^\w\s-]", "", title)           # Remove special chars
-    clean = re.sub(r"[\s_-]+", "_", clean).strip("_")  # Normalize spacing
-    base = f"{tab}_{clean}"
-    return base[:max_length] + ".pdf"  # Truncate if too long
+    # Remove unwanted characters and normalize
+    title_clean = re.sub(r"[^\w\s-]", "", title)
+    title_clean = re.sub(r"[\s_-]+", "_", title_clean).strip("_")
+
+    # Compose and truncate the final filename
+    base = f"{tab}_{title_clean}"
+    truncated = base[:max_length]
+    return f"{truncated}.pdf"
     
 def sanitize_filename(text):
     return "".join(c if c.isalnum() or c in (" ", "-", "_") else "_" for c in text).strip().replace(" ", "_")
