@@ -4,10 +4,11 @@ import os
 import fitz  # PyMuPDF
 import re
 
-def sanitize_filename(text, max_length=100):
-    """Sanitize and truncate the filename to be filesystem-safe."""
-    safe = re.sub(r'[^a-zA-Z0-9]+', '_', text)
-    return safe[:max_length].rstrip('_')
+def sanitize_filename(title: str, max_length=150) -> str:
+    # Replace unsafe characters with underscores
+    safe = re.sub(r'[^\w\s-]', '', title)
+    safe = re.sub(r'[\s]+', '_', safe)
+    return safe[:max_length]
 
 def segment_pdf_by_toc(pdf_path, toc_path, output_dir):
     # Load TOC entries from JSON
@@ -35,15 +36,14 @@ def segment_pdf_by_toc(pdf_path, toc_path, output_dir):
         subdoc = doc[start - 1:end]
 
         # Build a sanitized, safe filename
-        filename = f"{tab}_{sanitize_filename(title)}.pdf"
+        filename = f"{entry['tab']}_{sanitize_filename(entry['title'])}.pdf"
         filepath = os.path.join(output_dir, filename)
 
         try:
-            subdoc.save(filepath)
-            print(f"✅ Saved {filename} ({start}–{end})")
-            saved_entries.append(filename)
-        except Exception as e:
-            print(f"❌ Failed to save {filename}: {e}")
+    subdoc.save(filepath)
+    print(f"✅ Saved {filename} ({entry['startPage']}–{entry['endPage']})")
+except Exception as e:
+    print(f"❌ Failed to save {filename}: {e}")
 
     return saved_entries
 
