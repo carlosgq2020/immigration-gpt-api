@@ -36,17 +36,23 @@ def segment_pdf_by_toc(pdf_path, toc_path, output_dir):
         subdoc = doc[start - 1:end]
 
         # Build a sanitized, safe filename
-        filename = f"{entry['tab']}_{sanitize_filename(entry['title'])}.pdf"
+        filename = f"{tab}_{sanitize_filename(title)}.pdf"
         filepath = os.path.join(output_dir, filename)
 
         try:
-    subdoc.save(filepath)
-    print(f"✅ Saved {filename} ({entry['startPage']}–{entry['endPage']})")
-except Exception as e:
-    print(f"❌ Failed to save {filename}: {e}")
+            subdoc.save(filepath)
+            print(f"✅ Saved {filename} ({start}–{end})")
+            saved_entries.append({
+                "tab": tab,
+                "title": title,
+                "filename": filename,
+                "startPage": start,
+                "endPage": end
+            })
+        except Exception as e:
+            print(f"❌ Failed to save {filename}: {e}")
 
     return saved_entries
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
