@@ -5,8 +5,8 @@ import fitz  # PyMuPDF
 import re
 
 def sanitize_filename(title: str, max_length=150) -> str:
-    safe = re.sub(r'[^\w\s-]', '', title)  # remove special chars
-    safe = re.sub(r'[\s]+', '_', safe)     # spaces to underscores
+    safe = re.sub(r'[^\w\s-]', '', title)
+    safe = re.sub(r'[\s]+', '_', safe)
     return safe[:max_length]
 
 def segment_pdf_by_toc(pdf_path, toc_path, output_dir):
@@ -33,7 +33,7 @@ def segment_pdf_by_toc(pdf_path, toc_path, output_dir):
         filepath = os.path.join(output_dir, filename)
 
         try:
-            subdoc = fitz.open()  # ✅ create a new blank PDF
+            subdoc = fitz.open()
             subdoc.insert_pdf(doc, from_page=start - 1, to_page=end - 1)
             subdoc.save(filepath)
             print(f"✅ Saved {filename} ({start}–{end})")
