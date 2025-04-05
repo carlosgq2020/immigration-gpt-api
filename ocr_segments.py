@@ -21,46 +21,44 @@ pdf_segments = {
 }
 
 # Normalize helper
-def normalize(text):
-    return re.sub(r"[^\w\s]", "", text).strip().lower()
+def normalize_for_matching(text):
+    text = text.lower()
+    text = re.sub(r'https?://\S+', '', text)  # Remove URLs
+    text = re.sub(r'“|”|‘|’', '', text)        # Normalize quotes
+    text = re.sub(r'last accessed.*$', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'[^a-z0-9\s]', '', text)    # Strip punctuation
+    text = re.sub(r'\s+', ' ', text)           # Collapse spaces
+    return text.strip()
 
-# Store OCR results
-results = {}
-
-# Try matching each TOC entry to a segment file
 for entry in toc:
     key = entry["key"]
     title = entry["title"]
-    raw = f"{key} - {title}"
-    normalized_key = normalize(raw)
+    raw_title = f"{key} - {title}"
+    cleaned_title = normalize_for_matching(raw_title)
+
+    candidates = [normalize_for_matching(name) for name in pdf_segments.keys()]
+    name_map = dict(zip(candidates, pdf_segments.keys()))
 
     matches = process.extract(
-        normalized_key,
-        pdf_segments.keys(),
-        scorer=fuzz.partial_ratio,
+        cleaned_title,
+        candidates,
+        scorer=fuzz.token_set_ratio,
         limit=3
     )
 
-    if not matches:
-        print(f"❌ No match candidates for: {raw}")
-        continue
-
     best_match, score, _ = matches[0]
+    matched_filename = pdf_segments[name_map[best_match]]
 
     if score >= 85:
-        matched_filename = pdf_segments[best_match]
-        print(f"✅ Match: {raw}\n   ↪ {matched_filename} (score: {score})")
-
+        print(f"✅ Match: {raw_title}\n   ↪ {matched_filename} (score: {score})")
     elif score >= 70:
-        matched_filename = pdf_segments[best_match]
-        print(f"⚠️ Low-confidence match for: {raw}")
+        print(f"⚠️ Low-confidence match for: {raw_title}")
         print(f"   ↪ {matched_filename} (score: {score})")
-
     else:
-        print(f"❌ No match for: {raw}")
+        print(f"❌ No match for: {raw_title}")
         print("   Top guesses:")
-        for name, s, _ in matches:
-            print(f"     - {name} (score: {s})")
+        for m, s, _ in matches:
+            print(f"     - {name_map[m]} (score: {s})")
         continue
 
     # OCR the PDF
