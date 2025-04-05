@@ -46,14 +46,21 @@ def main():
         if not tab or not title:
             continue
 
-        # Normalize and sanitize title to match saved filenames
-        title = title.replace("\n", " ").strip()
-        expected_filename = f"{tab}_{sanitize_filename(title)}.pdf"
-        segment_path = os.path.join(segments_dir, expected_filename)
+        # Normalize title exactly like segment_by_toc.py
+title = title.replace("\n", " ").strip()
+sanitized_title = sanitize_filename(title)
+expected_filename = f"{tab}_{sanitized_title}.pdf"
+segment_path = os.path.join(segments_dir, expected_filename)
 
-        if not os.path.exists(segment_path):
-            print(f"⚠️ No match found for {tab} - {title}")
-            continue
+# Try to match ignoring case and whitespace if filename not found
+if not os.path.exists(segment_path):
+    # Attempt fuzzy matching with available filenames
+    matches = [f for f in segment_filenames if f.lower().startswith(f"{tab}_{sanitized_title[:40].lower()}")]
+    if matches:
+        segment_path = os.path.join(segments_dir, matches[0])
+    else:
+        print(f"⚠️ No match found for {tab} - {title}")
+        continue
 
         print(f"🔍 Checking {segment_path}...")
         text = extract_text_from_pdf(segment_path)
