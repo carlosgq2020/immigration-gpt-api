@@ -36,20 +36,20 @@ def simplify_title(title, max_words=10):
 from rapidfuzz import process, fuzz
 import unicodedata
 
+def normalize_title(title, tab, max_words=20):
+    full_title = f"{tab} {title}"
 
-def normalize_title(title, tab, max_words=12):
-    # Remove non-ascii chars, normalize unicode
-    title = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode("ascii")
+    # Normalize: lowercase, ASCII only
+    title = unicodedata.normalize("NFKD", full_title).encode("ascii", "ignore").decode("ascii").lower()
 
-    title = title.lower()
+    # Remove URLs, punctuation, extra spaces
     title = re.sub(r'https?://\S+', '', title)
-    title = re.sub(r'[^\w\s-]', '', title)        # remove punctuation
-    title = re.sub(r'\s+', '_', title.strip())    # replace spaces with underscores
+    title = re.sub(r'[^\w\s]', '', title)
+    title = re.sub(r'\s+', ' ', title.strip())
 
-    # Keep just the first N words
-    title_words = title.split('_')[:max_words]
-    short_title = '_'.join(title_words)
-    return f"{tab.lower()}_{short_title}"
+    # Limit to max_words
+    words = title.split()[:max_words]
+    return "_".join(words)
 
     for entry in toc:
     tab = entry.get("tab", "").strip()
@@ -60,7 +60,10 @@ def normalize_title(title, tab, max_words=12):
 
     normalized_key = normalize_title(title, tab)
 
-    best_match, score = process.extractOne(normalized_key, cleaned_filenames, scorer=fuzz.partial_token_sort_ratio)
+    # Prepare filenames for comparison (without .pdf)
+    cleaned_filenames = [os.path.splitext(f)[0].lower() for f in segment_filenames]
+
+    best_match, score = process.extractOne(normalized_key, cleaned_filenames, scorer=fuzz.partial_ratio)
 
     if score >= 55:
         matched_index = cleaned_filenames.index(best_match)
@@ -69,14 +72,6 @@ def normalize_title(title, tab, max_words=12):
     else:
         print(f"⚠️ No match found for {tab} - {title[:70]}... (score: {score})")
         continue
-        print(f"🔍 Checking {filepath}...")
-        try:
-            text = ocr_pdf(filepath)
-            results[matched_filename] = text
-            print(f"✅ Finished: {matched_filename[:-4]}")
-        except Exception as e:
-            print(f"❌ Error processing {matched_filename}: {e}")
-
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2, ensure_ascii=False)
 
