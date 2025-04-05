@@ -33,36 +33,42 @@ def simplify_title(title, max_words=10):
     return '_'.join(words[:max_words]).lower()
 
 
-def process_segments(toc_path, segments_dir, output_path="segments_text.json"):
-    with open(toc_path, "r", encoding="utf-8") as f:
-        toc = json.load(f)
+from rapidfuzz import process, fuzz
+import unicodedata
 
-    results = {}
-    segment_filenames = os.listdir(segments_dir)
-    cleaned_filenames = [clean_string(f) for f in segment_filenames]
+
+def normalize_title(title, tab, max_words=12):
+    # Remove non-ascii chars, normalize unicode
+    title = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode("ascii")
+
+    title = title.lower()
+    title = re.sub(r'https?://\S+', '', title)
+    title = re.sub(r'[^\w\s-]', '', title)        # remove punctuation
+    title = re.sub(r'\s+', '_', title.strip())    # replace spaces with underscores
+
+    # Keep just the first N words
+    title_words = title.split('_')[:max_words]
+    short_title = '_'.join(title_words)
+    return f"{tab.lower()}_{short_title}"
 
     for entry in toc:
-        tab = entry.get("tab", "").strip()
-        title = entry.get("title", "").strip()
+    tab = entry.get("tab", "").strip()
+    title = entry.get("title", "").strip()
 
-        if not tab or not title:
-            print(f"⚠️ Skipping entry with missing tab or title: {entry}")
-            continue
+    if not tab or not title:
+        continue
 
-        short_title = simplify_title(title)
-        match_key = clean_string(f"{tab}_{short_title}")
+    normalized_key = normalize_title(title, tab)
 
-        # Match with fuzz, partial ratio
-        best_match, score = process.extractOne(match_key, cleaned_filenames, scorer=fuzz.partial_ratio)
+    best_match, score = process.extractOne(normalized_key, cleaned_filenames, scorer=fuzz.partial_token_sort_ratio)
 
-        if score >= 60:
-            matched_index = cleaned_filenames.index(best_match)
-            matched_filename = segment_filenames[matched_index]
-            filepath = os.path.join(segments_dir, matched_filename)
-        else:
-            print(f"⚠️ No match found for {tab} - {title[:50]}... (score: {score})")
-            continue
-
+    if score >= 55:
+        matched_index = cleaned_filenames.index(best_match)
+        matched_filename = segment_filenames[matched_index]
+        filepath = os.path.join(segments_dir, matched_filename)
+    else:
+        print(f"⚠️ No match found for {tab} - {title[:70]}... (score: {score})")
+        continue
         print(f"🔍 Checking {filepath}...")
         try:
             text = ocr_pdf(filepath)
