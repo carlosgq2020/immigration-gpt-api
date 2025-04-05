@@ -1,64 +1,70 @@
 import os
-import re
 import json
 import pytesseract
 import fitz  # PyMuPDF
+import re
 from pdf2image import convert_from_path
-from PIL import Image
 
-def title = title.replace('\n', ' ').strip()
-    sanitize_filename(title: str, max_length=150) -> str:
+# Helper to sanitize filenames like in segment_by_toc.py
+def sanitize_filename(title: str, max_length=150) -> str:
     safe = re.sub(r'[^\w\s-]', '', title)
     safe = re.sub(r'[\s]+', '_', safe)
     return safe[:max_length]
 
-def perform_ocr_on_pdf(pdf_path):
-    images = convert_from_path(pdf_path)
-    text_output = ""
-    for img in images:
-        text_output += pytesseract.image_to_string(img)
-    return text_output
+def extract_text_from_pdf(pdf_path):
+    try:
+        # Convert PDF to image per page (for scanned OCR)
+        images = convert_from_path(pdf_path)
+        text = ""
+        for image in images:
+            page_text = pytesseract.image_to_string(image)
+            text += page_text + "\n\n"
+        return text.strip()
+    except Exception as e:
+        print(f"❌ OCR failed for {pdf_path}: {e}")
+        return ""
 
 def main():
     toc_path = "toc_output.json"
-    pdf_folder = "output_segments"
-    output_path = "segments_text.json"
+    segments_dir = "output_segments"
+    output_json = "segments_text.json"
+
+    if not os.path.exists(toc_path):
+        print("❌ toc_output.json not found")
+        return
 
     with open(toc_path, "r", encoding="utf-8") as f:
         toc_entries = json.load(f)
 
-    ocr_results = {}
-
-    filenames = os.listdir(pdf_folder)
-    filenames_set = set(filenames)
+    segment_filenames = os.listdir(segments_dir)
+    results = {}
 
     for entry in toc_entries:
         tab = entry.get("tab")
         title = entry.get("title")
+
         if not tab or not title:
-            print(f"⚠️ Missing tab or title in entry: {entry}")
             continue
 
+        # Normalize and sanitize title to match saved filenames
+        title = title.replace("\n", " ").strip()
         expected_filename = f"{tab}_{sanitize_filename(title)}.pdf"
-        match = next((f for f in filenames if f == expected_filename), None)
+        segment_path = os.path.join(segments_dir, expected_filename)
 
-        if not match:
+        if not os.path.exists(segment_path):
             print(f"⚠️ No match found for {tab} - {title}")
             continue
 
-        full_path = os.path.join(pdf_folder, match)
-        print(f"🔍 Checking {full_path}...")
-        try:
-            text = perform_ocr_on_pdf(full_path)
-            ocr_results[match] = text
-            print(f"✅ Finished: {match[:-4]}")
-        except Exception as e:
-            print(f"❌ Failed OCR on {match}: {e}")
+        print(f"🔍 Checking {segment_path}...")
+        text = extract_text_from_pdf(segment_path)
+        results[expected_filename] = text
+        print(f"✅ Finished: {expected_filename[:-4]}")  # strip .pdf in log
 
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(ocr_results, f, indent=2, ensure_ascii=False)
+    # Save results
+    with open(output_json, "w", encoding="utf-8") as f:
+        json.dump(results, f, indent=2, ensure_ascii=False)
 
-    print(f"\n📝 Saved OCR results to: {output_path}")
+    print(f"\n📝 Saved OCR results to: {output_json}")
 
 if __name__ == "__main__":
     main()
