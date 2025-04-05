@@ -7,20 +7,17 @@ from pdf2image import convert_from_path
 from rapidfuzz import process, fuzz
 
 
-def sanitize_filename(title: str, max_length=150) -> str:
-    # Remove URLs and special characters
-    title = re.sub(r'https?://\S+', '', title)
-    title = re.sub(r'[^\w\s-]', '', title)
-    title = re.sub(r'[\s]+', '_', title)
-    return title.strip()[:max_length]
-
-
 def ocr_pdf(pdf_path):
     text = ''
     images = convert_from_path(pdf_path, dpi=300)
     for image in images:
         text += pytesseract.image_to_string(image)
     return text
+
+
+def clean_string(s):
+    # Lowercase, remove special characters
+    return re.sub(r'[^\w\s]', '', s).lower()
 
 
 def process_segments(toc_path, segments_dir, output_path="segments_text.json"):
@@ -31,25 +28,28 @@ def process_segments(toc_path, segments_dir, output_path="segments_text.json"):
     segment_filenames = os.listdir(segments_dir)
 
     for entry in toc:
-        tab = entry.get("tab")
-        title = entry.get("title")
+        tab = entry.get("tab", "")
+        title = entry.get("title", "")
 
         if not tab or not title:
             print(f"⚠️ No match found for {tab} - {title}")
             continue
 
-        sanitized_title = sanitize_filename(title)
-        expected_filename = f"{tab}_{sanitized_title}.pdf"
+        # Build a search string using just tab + cleaned keywords
+        search_string = f"{tab}_{clean_string(title)}"
 
-        # Fuzzy match if not exact
-        match, score, _ = process.extractOne(
-            expected_filename,
-            segment_filenames,
-            scorer=fuzz.partial_ratio
-        )
+        # Prepare a list of cleaned filenames for matching
+        filename_scores = {}
+        for f in segment_filenames:
+            f_clean = clean_string(f)
+            score = fuzz.partial_ratio(search_string, f_clean)
+            filename_scores[f] = score
 
-        if score >= 85:
-            segment_path = os.path.join(segments_dir, match)
+        # Pick the best match above a threshold
+        best_match = max(filename_scores.items(), key=lambda x: x[1])
+        if best_match[1] >= 70:
+            filename = best_match[0]
+            segment_path = os.path.join(segments_dir, filename)
         else:
             print(f"⚠️ No match found for {tab} - {title}")
             continue
@@ -57,10 +57,10 @@ def process_segments(toc_path, segments_dir, output_path="segments_text.json"):
         print(f"🔍 Checking {segment_path}...")
         try:
             text = ocr_pdf(segment_path)
-            results[match] = text
-            print(f"✅ Finished: {match[:-4]}")
+            results[filename] = text
+            print(f"✅ Finished: {filename[:-4]}")
         except Exception as e:
-            print(f"❌ Error processing {match}: {e}")
+            print(f"❌ Error processing {filename}: {e}")
 
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2, ensure_ascii=False)
