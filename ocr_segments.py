@@ -1,77 +1,68 @@
 import os
 import json
-import pytesseract
 import fitz  # PyMuPDF
+import pytesseract
+from PIL import Image
+import tempfile
 import re
 from pdf2image import convert_from_path
 
-# Helper to sanitize filenames like in segment_by_toc.py
+# ⛑️ Helper to match TOC naming logic
 def sanitize_filename(title: str, max_length=150) -> str:
     safe = re.sub(r'[^\w\s-]', '', title)
-    safe = re.sub(r'[\s]+', '_', safe)
+    safe = re.sub(r'\s+', '_', safe)
     return safe[:max_length]
 
-def extract_text_from_pdf(pdf_path):
-    try:
-        # Convert PDF to image per page (for scanned OCR)
-        images = convert_from_path(pdf_path)
-        text = ""
-        for image in images:
-            page_text = pytesseract.image_to_string(image)
-            text += page_text + "\n\n"
-        return text.strip()
-    except Exception as e:
-        print(f"❌ OCR failed for {pdf_path}: {e}")
-        return ""
+# ⛑️ OCR one PDF file
+def ocr_pdf(pdf_path):
+    text = ''
+    images = convert_from_path(pdf_path, dpi=300)
+    for image in images:
+        text += pytesseract.image_to_string(image)
+    return text
 
-def main():
-    toc_path = "toc_output.json"
-    segments_dir = "output_segments"
-    output_json = "segments_text.json"
-
-    if not os.path.exists(toc_path):
-        print("❌ toc_output.json not found")
-        return
-
+# 🔁 Loop through TOC + segments and perform OCR
+def process_segments(toc_path, segments_dir, output_path="segments_text.json"):
     with open(toc_path, "r", encoding="utf-8") as f:
-        toc_entries = json.load(f)
+        toc = json.load(f)
 
-    segment_filenames = os.listdir(segments_dir)
     results = {}
+    segment_filenames = set(os.listdir(segments_dir))
 
-    for entry in toc_entries:
+    for entry in toc:
         tab = entry.get("tab")
         title = entry.get("title")
 
         if not tab or not title:
+            print(f"⚠️ No match found for {tab} - {title}")
             continue
 
-        # Normalize title exactly like segment_by_toc.py
-title = title.replace("\n", " ").strip()
-sanitized_title = sanitize_filename(title)
-expected_filename = f"{tab}_{sanitized_title}.pdf"
-segment_path = os.path.join(segments_dir, expected_filename)
+        # Build the expected filename
+        sanitized_title = sanitize_filename(title.strip())
+        expected_filename = f"{tab}_{sanitized_title}.pdf"
+        segment_path = os.path.join(segments_dir, expected_filename)
 
-# Try to match ignoring case and whitespace if filename not found
-if not os.path.exists(segment_path):
-    # Attempt fuzzy matching with available filenames
-    matches = [f for f in segment_filenames if f.lower().startswith(f"{tab}_{sanitized_title[:40].lower()}")]
-    if matches:
-        segment_path = os.path.join(segments_dir, matches[0])
-    else:
-        print(f"⚠️ No match found for {tab} - {title}")
-        continue
+        # Fallback: try partial matching
+        if not os.path.exists(segment_path):
+            matches = [f for f in segment_filenames if f.lower().startswith(f"{tab}_{sanitized_title[:40].lower()}")]
+            if matches:
+                segment_path = os.path.join(segments_dir, matches[0])
+            else:
+                print(f"⚠️ No match found for {tab} - {title}")
+                continue
 
         print(f"🔍 Checking {segment_path}...")
-        text = extract_text_from_pdf(segment_path)
-        results[expected_filename] = text
-        print(f"✅ Finished: {expected_filename[:-4]}")  # strip .pdf in log
+        try:
+            text = ocr_pdf(segment_path)
+            results[expected_filename] = text
+            print(f"✅ Finished: {expected_filename[:-4]}")
+        except Exception as e:
+            print(f"❌ Error processing {expected_filename}: {e}")
 
-    # Save results
-    with open(output_json, "w", encoding="utf-8") as f:
+    with open(output_path, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2, ensure_ascii=False)
+    print(f"\n📝 Saved OCR results to: {output_path}")
 
-    print(f"\n📝 Saved OCR results to: {output_json}")
 
 if __name__ == "__main__":
-    main()
+    process_segments("toc_output.json", "output_segments")
