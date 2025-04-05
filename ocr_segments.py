@@ -69,6 +69,17 @@ for entry in toc:
             print(f"     - {normalized_to_filename[guess]} (score: {guess_score})")
         continue
 
+    # Fallback: try matching on just the key (like 'H', 'M', etc.)
+fallback_filename = next(
+    (f for f in pdf_segments if f.startswith(f"{key}_")),
+    None
+    )
+
+    if fallback_filename:
+        print(f"🟡 Fallback match using key '{key}': {fallback_filename}")
+    else:
+        print(f"⚠️ Still no match for: {raw_title}")
+
     # OCR the PDF
     pdf_path = os.path.join(SEGMENTS_DIR, matched_filename)
     print(f"🔍 OCRing {matched_filename}...")
