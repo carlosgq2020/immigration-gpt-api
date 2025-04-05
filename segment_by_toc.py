@@ -23,7 +23,7 @@ def segment_pdf_by_toc(pdf_path, toc_path, output_dir):
 
     saved_entries = []
 
-    for entry in toc_entries:
+        for entry in toc_entries:
         start = entry.get("startPage")
         end = entry.get("endPage")
         title = entry.get("title")
@@ -32,26 +32,19 @@ def segment_pdf_by_toc(pdf_path, toc_path, output_dir):
         if start is None or end is None or title is None or tab is None:
             continue
 
-        # PyMuPDF uses 0-based indexing
-        subdoc = doc[start - 1:end]
-
-        # Build a sanitized, safe filename
         filename = f"{tab}_{sanitize_filename(title)}.pdf"
         filepath = os.path.join(output_dir, filename)
 
         try:
+            # Create new empty PDF
+            subdoc = fitz.open()
+            subdoc.insert_pdf(doc, from_page=start - 1, to_page=end - 1)
+
             subdoc.save(filepath)
             print(f"✅ Saved {filename} ({start}–{end})")
-            saved_entries.append({
-                "tab": tab,
-                "title": title,
-                "filename": filename,
-                "startPage": start,
-                "endPage": end
-            })
+
         except Exception as e:
             print(f"❌ Failed to save {filename}: {e}")
-
     return saved_entries
 
 if __name__ == "__main__":
