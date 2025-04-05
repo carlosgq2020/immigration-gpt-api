@@ -32,14 +32,14 @@ def segment_pdf_by_toc(pdf_path, toc_path, output_dir):
         filename = f"{tab}_{sanitize_filename(title)}.pdf"
         filepath = os.path.join(output_dir, filename)
 
-    try:
-        subdoc = fitz.open()  # create a new PDF
-        subdoc.insert_pdf(doc, from_page=start - 1, to_page=end - 1)
-        subdoc.save(filepath)
-        print(f"✅ Saved {filename} ({start}–{end})")
-        saved_entries.append(filepath)
-except Exception as e:
-        print(f"❌ Failed to save {filename}: {e}")
+        try:
+            subdoc = fitz.open()
+            subdoc.insert_pdf(doc, from_page=start - 1, to_page=end - 1)
+            subdoc.save(filepath)
+            print(f"✅ Saved {filename} ({start}–{end})")
+            saved_entries.append(filepath)
+        except Exception as e:
+            print(f"❌ Failed to save {filename}: {e}")
 
     return saved_entries
 
