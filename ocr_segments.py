@@ -3,63 +3,64 @@ import json
 import fitz  # PyMuPDF
 import pytesseract
 from pdf2image import convert_from_path
-from PIL import Image
+from difflib import get_close_matches
 
-def is_scanned(pdf_path):
-    doc = fitz.open(pdf_path)
-    for page in doc:
-        if page.get_text().strip():
-            return False
-    return True
+# OCR function
+def extract_text_from_pdf(pdf_path):
+    images = convert_from_path(pdf_path)
+    text = ""
+    for i, img in enumerate(images):
+        page_text = pytesseract.image_to_string(img, lang='eng+spa')
+        text += f"\n\n--- Page {i+1} ---\n\n" + page_text
+    return text.strip()
 
-def ocr_pdf(pdf_path):
-    images = convert_from_path(pdf_path, dpi=300)
-    full_text = ""
-    for img in images:
-        text = pytesseract.image_to_string(img)
-        full_text += text + "\n"
-    return full_text.strip()
+# Sanitize filenames for comparison
+def sanitize_filename(text):
+    return ''.join(c if c.isalnum() else '_' for c in text).lower()
 
-def extract_ocr_for_segments(segment_dir, toc_path, output_json):
+# Fuzzy match: find the closest filename for a given TOC entry
+def find_best_match_filename(title, tab, segment_dir):
+    target = sanitize_filename(f"{tab}_{title}")
+    all_files = os.listdir(segment_dir)
+    pdfs = [f for f in all_files if f.lower().endswith(".pdf")]
+    candidates = [f[:-4] for f in pdfs]  # remove .pdf
+    match = get_close_matches(target, candidates, n=1, cutoff=0.4)
+    if match:
+        return os.path.join(segment_dir, match[0] + ".pdf")
+    return None
+
+def run_ocr_on_segments(toc_path, segment_dir, output_json="segments_text.json"):
     with open(toc_path, "r", encoding="utf-8") as f:
         toc_entries = json.load(f)
 
-    output_data = []
+    results = {}
+
     for entry in toc_entries:
         tab = entry.get("tab")
         title = entry.get("title")
-        safe_title = title.replace("’", "").replace("'", "").replace(" ", "_")
-        filename_prefix = f"{tab}_{safe_title}"
-        matches = [f for f in os.listdir(segment_dir) if f.startswith(filename_prefix[:40])]  # allow truncated matches
 
-        if not matches:
+        if not tab or not title:
             print(f"⚠️ No match found for {tab} - {title}")
             continue
 
-        filepath = os.path.join(segment_dir, matches[0])
-        print(f"🔍 Checking {filepath}...")
+        filepath = find_best_match_filename(title, tab, segment_dir)
 
-        if is_scanned(filepath):
-            print(f"🧾 Running OCR on: {filepath}")
-            text = ocr_pdf(filepath)
+        if filepath:
+            print(f"🔍 Checking {os.path.basename(filepath)}...")
+            try:
+                text = extract_text_from_pdf(filepath)
+                results[f"{tab}_{title}"] = text
+                print(f"✅ Finished: {os.path.basename(filepath)[:-4]}")
+            except Exception as e:
+                print(f"❌ Error reading {filepath}: {e}")
         else:
-            doc = fitz.open(filepath)
-            text = "\n".join([page.get_text() for page in doc])
+            print(f"⚠️ No match found for {tab} - {title}")
 
-        output_data.append({
-            "tab": tab,
-            "title": title,
-            "text": text.strip()
-        })
-        print(f"✅ Finished: {filename_prefix}")
+    # Save all extracted text
+    with open(output_json, "w", encoding="utf-8") as f:
+        json.dump(results, f, indent=2, ensure_ascii=False)
 
-    with open(output_json, "w", encoding="utf-8") as out:
-        json.dump(output_data, out, indent=2, ensure_ascii=False)
     print(f"\n📝 Saved OCR results to: {output_json}")
 
 if __name__ == "__main__":
-    extract_ocr_for_segments(
-        segment_dir="output_segments",
-        toc_path="toc_output.json",
-        output_json="segments_text.json"
-    )
+    run_ocr_on_segments("toc_output.json", "output_segments")
