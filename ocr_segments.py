@@ -9,6 +9,32 @@ TOC_FILE = "toc.json"
 SEGMENT_FOLDER = "output_segments"
 OCR_OUTPUT_FILE = "segments_text.json"
 
+def match_title_to_segment(title, pdf_segments):
+    from difflib import get_close_matches
+
+    manual_matches = {
+        "TAB": "TAB_Page_Identity_Documents",
+        "C": "C_Definition_of_a_Refugee_INA_101a42",
+        "H": "H_Affidavit_of_Jesniher_L",
+        "M": "M_Gomez_Natalia_Persecution_of_Protest_Leaders",
+        "N": "N_PBI_The_Peasant_Movement_in_Exile",
+        "O": "O_UN_Annual_Report_on_Human_Rights_2022",
+        "P": "P_IACHR_Six_Years_After_Social_Protests",
+    }
+
+    for key in manual_matches:
+        if title.startswith(key):
+            manual_filename = manual_matches[key]
+            if manual_filename in pdf_segments:
+                print(f"🧷 Manual match for {title}: {manual_filename}")
+                return manual_filename
+
+    # Fallback to fuzzy matching
+    matches = get_close_matches(title, pdf_segments, n=1, cutoff=0.6)
+    if matches:
+        return matches[0]
+    return None
+
 def normalize_for_matching(text):
     return re.sub(r"[^a-z0-9]", "", text.lower())
 
