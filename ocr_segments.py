@@ -4,13 +4,16 @@ import re
 import pytesseract
 from PIL import Image
 from pdf2image import convert_from_path
+from rapidfuzz import process, fuzz
+
 
 def sanitize_filename(title: str, max_length=150) -> str:
-    # Remove unsafe characters
-    title = re.sub(r'https?://\S+', '', title)  # Remove URLs
-    title = re.sub(r'[^\w\s-]', '', title)  # Remove special characters
-    title = re.sub(r'[\s]+', '_', title)  # Replace spaces with underscores
+    # Remove URLs and special characters
+    title = re.sub(r'https?://\S+', '', title)
+    title = re.sub(r'[^\w\s-]', '', title)
+    title = re.sub(r'[\s]+', '_', title)
     return title.strip()[:max_length]
+
 
 def ocr_pdf(pdf_path):
     text = ''
@@ -19,12 +22,13 @@ def ocr_pdf(pdf_path):
         text += pytesseract.image_to_string(image)
     return text
 
+
 def process_segments(toc_path, segments_dir, output_path="segments_text.json"):
     with open(toc_path, "r", encoding="utf-8") as f:
         toc = json.load(f)
 
     results = {}
-    segment_filenames = set(os.listdir(segments_dir))
+    segment_filenames = os.listdir(segments_dir)
 
     for entry in toc:
         tab = entry.get("tab")
@@ -36,32 +40,27 @@ def process_segments(toc_path, segments_dir, output_path="segments_text.json"):
 
         sanitized_title = sanitize_filename(title)
         expected_filename = f"{tab}_{sanitized_title}.pdf"
-        expected_filename_lower = expected_filename.lower()
-        segment_path = os.path.join(segments_dir, expected_filename)
 
-        # Match exactly first
-        if os.path.exists(segment_path):
-            pass
+        # Fuzzy match if not exact
+        match, score, _ = process.extractOne(
+            expected_filename,
+            segment_filenames,
+            scorer=fuzz.partial_ratio
+        )
+
+        if score >= 85:
+            segment_path = os.path.join(segments_dir, match)
         else:
-            # Try partial and case-insensitive match
-            matches = [
-                fname for fname in segment_filenames
-                if fname.lower().startswith(f"{tab.lower()}_{sanitized_title[:80].lower()}")
-            ]
-            if matches:
-                segment_path = os.path.join(segments_dir, matches[0])
-                expected_filename = matches[0]
-            else:
-                print(f"⚠️ No match found for {tab} - {title}")
-                continue
+            print(f"⚠️ No match found for {tab} - {title}")
+            continue
 
         print(f"🔍 Checking {segment_path}...")
         try:
             text = ocr_pdf(segment_path)
-            results[expected_filename] = text
-            print(f"✅ Finished: {expected_filename[:-4]}")
+            results[match] = text
+            print(f"✅ Finished: {match[:-4]}")
         except Exception as e:
-            print(f"❌ Error processing {expected_filename}: {e}")
+            print(f"❌ Error processing {match}: {e}")
 
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2, ensure_ascii=False)
