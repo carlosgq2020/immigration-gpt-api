@@ -21,13 +21,19 @@ pdf_segments = {
 }
 
 # Normalize helper
+
 def normalize_for_matching(text):
+    # Lowercase
     text = text.lower()
-    text = re.sub(r'https?://\S+', '', text)  # Remove URLs
-    text = re.sub(r'“|”|‘|’', '', text)        # Normalize quotes
+    # Remove URLs
+    text = re.sub(r'https?://\S+', '', text)
+    # Remove smart quotes, line breaks, punctuation (except dashes and underscores)
+    text = text.replace('“', '').replace('”', '').replace('‘', '').replace('’', '')
+    text = text.replace('–', '-').replace('—', '-')  # normalize em/en dash
+    text = re.sub(r'[^a-z0-9\s\-_]', '', text)
     text = re.sub(r'last accessed.*$', '', text, flags=re.IGNORECASE)
-    text = re.sub(r'[^a-z0-9\s]', '', text)    # Strip punctuation
-    text = re.sub(r'\s+', ' ', text)           # Collapse spaces
+    # Collapse multiple spaces
+    text = re.sub(r'\s+', ' ', text)
     return text.strip()
 
 for entry in toc:
@@ -36,29 +42,31 @@ for entry in toc:
     raw_title = f"{key} - {title}"
     cleaned_title = normalize_for_matching(raw_title)
 
-    candidates = [normalize_for_matching(name) for name in pdf_segments.keys()]
-    name_map = dict(zip(candidates, pdf_segments.keys()))
+    # Map: normalized -> original filename
+    normalized_to_filename = {
+        normalize_for_matching(name): name for name in pdf_segments.keys()
+    }
 
-    matches = process.extract(
+    # Fuzzy match
+    match_results = process.extract(
         cleaned_title,
-        candidates,
-        scorer=fuzz.token_set_ratio,
+        normalized_to_filename.keys(),
+        scorer=fuzz.token_sort_ratio,
         limit=3
     )
 
-    best_match, score, _ = matches[0]
-    matched_filename = pdf_segments[name_map[best_match]]
+    best_match, score, _ = match_results[0]
+    matched_filename = normalized_to_filename[best_match]
 
     if score >= 85:
-        print(f"✅ Match: {raw_title}\n   ↪ {matched_filename} (score: {score})")
-    elif score >= 70:
-        print(f"⚠️ Low-confidence match for: {raw_title}")
+        print(f"✅ Match: {raw_title}")
         print(f"   ↪ {matched_filename} (score: {score})")
     else:
-        print(f"❌ No match for: {raw_title}")
+        print(f"⚠️ No strong match for: {raw_title}")
+        print(f"   Best guess: {matched_filename} (score: {score})")
         print("   Top guesses:")
-        for m, s, _ in matches:
-            print(f"     - {name_map[m]} (score: {s})")
+        for guess, guess_score, _ in match_results:
+            print(f"     - {normalized_to_filename[guess]} (score: {guess_score})")
         continue
 
     # OCR the PDF
