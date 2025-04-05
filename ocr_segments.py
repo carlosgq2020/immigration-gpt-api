@@ -1,70 +1,87 @@
 import os
 import json
 import re
+import unicodedata
+from pathlib import Path
+from tqdm import tqdm
+from PyPDF2 import PdfReader
+from thefuzz import process, fuzz
 import pytesseract
-from PIL import Image
 from pdf2image import convert_from_path
-from rapidfuzz import process, fuzz
 
+# Normalize the TOC entry into a comparable format
+def normalize_title(title, tab, max_words=25):
+    combined = f"{tab} {title}".lower()
+    combined = unicodedata.normalize("NFKD", combined).encode("ascii", "ignore").decode("ascii")
+    combined = re.sub(r'https?://\S+', '', combined)  # strip URLs
+    combined = re.sub(r'["“”‘’\'()]', '', combined)  # strip quotes/parentheses
+    combined = re.sub(r'available at|last accessed', '', combined)  # clean phrases
+    combined = re.sub(r'[^\w\s]', '', combined)  # remove punctuation
+    combined = re.sub(r'\s+', ' ', combined.strip())  # collapse spaces
+    return "_".join(combined.split()[:max_words])  # limit length
 
-def ocr_pdf(pdf_path):
+# Run OCR and return text
+def ocr_pdf(path):
+    images = convert_from_path(path)
     text = ''
-    images = convert_from_path(pdf_path, dpi=300)
-    for image in images:
-        text += pytesseract.image_to_string(image)
+    for img in images:
+        text += pytesseract.image_to_string(img)
     return text
 
+# Main OCR matching routine
+def main():
+    segments_dir = Path("output_segments")
+    toc_path = Path("toc_output.json")
+    output_path = Path("segments_text.json")
 
-def clean_string(s):
-    s = s.replace("“", "").replace("”", "").replace("’", "").replace("‘", "")
-    s = s.replace("–", "-").replace("—", "-")
-    s = re.sub(r'https?://\S+', '', s)       # remove URLs
-    s = re.sub(r'[^\w\s-]', '', s)           # remove special characters
-    s = re.sub(r'\s+', '_', s.strip())       # replace spaces with underscores
-    return s.lower()
+    with toc_path.open() as f:
+        toc = json.load(f)
 
+    filenames = [p.stem for p in segments_dir.glob("*.pdf")]
+    cleaned_filenames = [re.sub(r'[^\w\s]', '', f).lower() for f in filenames]
 
-def simplify_title(title, max_words=10):
-    """Extract first N words of cleaned title."""
-    title = re.sub(r'https?://\S+', '', title)
-    title = re.sub(r'[^\w\s-]', '', title)
-    title = title.replace("“", "").replace("”", "").replace("’", "").replace("‘", "")
-    words = title.strip().split()
-    return '_'.join(words[:max_words]).lower()
-
-
-import re
-import unicodedata
-
-def normalize_title(title, tab, max_words=25):
-    # Combine tab and title
-    full_title = f"{tab} {title}"
-
-    # Normalize to ASCII
-    full_title = unicodedata.normalize("NFKD", full_title).encode("ascii", "ignore").decode("ascii").lower()
-
-    # Remove URLs
-    full_title = re.sub(r'https?://\S+', '', full_title)
-
-    # Remove anything in quotes or parentheses
-    full_title = re.sub(r'["“”‘’\'()]', '', full_title)
-
-    # Strip common terms
-    full_title = full_title.replace("available at", "").replace("last accessed", "")
-
-    # Remove punctuation
-    full_title = re.sub(r'[^\w\s]', '', full_title)
-
-    # Collapse multiple spaces
-    full_title = re.sub(r'\s+', ' ', full_title.strip())
-
-    # Limit words
-    words = full_title.split()[:max_words]
-    return "_".join(words)
-
+    results = {}
     for entry in toc:
-    tab = entry.get("tab", "").strip()
-    title = entry.get("title", "").strip()
+        tab = entry.get("tab", "").strip()
+        title = entry.get("title", "").strip()
+        normalized_key = normalize_title(title, tab)
+
+        # Try to match with filename
+        matches = process.extract(normalized_key, cleaned_filenames, scorer=fuzz.partial_ratio, limit=5)
+        best_match, score = matches[0][0], matches[0][1] if matches else ("", 0)
+
+        if score < 80:
+            print(f"\n⚠️ No match found for {tab} - {title}")
+            print(f"   🔍 Normalized: {normalized_key}")
+            print(f"   🔍 Top guesses:")
+            for name, s, _ in matches:
+                print(f"     → {name} (score: {s})")
+            continue
+
+        match_index = cleaned_filenames.index(best_match)
+        matched_file = filenames[match_index]
+        pdf_path = segments_dir / f"{matched_file}.pdf"
+
+        print(f"🔍 Checking {pdf_path}...")
+
+        try:
+            text = ocr_pdf(pdf_path)
+            results[matched_file] = {
+                "tab": tab,
+                "title": title,
+                "text": text
+            }
+            print(f"✅ Finished: {matched_file}")
+        except Exception as e:
+            print(f"❌ Error processing {pdf_path}: {e}")
+
+    with output_path.open("w") as f:
+        json.dump(results, f, indent=2)
+
+    print(f"\n📝 Saved OCR results to: {output_path}")
+
+if __name__ == "__main__":
+    main()
 
     if not tab or not title:
         continue
