@@ -63,7 +63,10 @@ def normalize_title(title, tab, max_words=20):
     # Prepare filenames for comparison (without .pdf)
     cleaned_filenames = [os.path.splitext(f)[0].lower() for f in segment_filenames]
 
-    best_match, score = process.extractOne(normalized_key, cleaned_filenames, scorer=fuzz.partial_ratio)
+    matches = process.extract(normalized_key, cleaned_filenames, scorer=fuzz.partial_ratio, limit=5)
+    print(f"\n🔍 Trying to match: {normalized_key}")
+for match in matches:
+    print(f"  → {match[0]} (score: {match[1]})")
 
     if score >= 55:
         matched_index = cleaned_filenames.index(best_match)
