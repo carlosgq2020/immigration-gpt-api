@@ -22,11 +22,26 @@ def load_pdf_segments():
         for f in Path(SEGMENT_FOLDER).glob("*.pdf")
     }
 
-def match_title_to_segment(title, pdf_segments):
+def manual_matches = {
+    "TAB": "TAB_Page_Identity_Documents",  # This must match the filename (minus .pdf)
+    "C": "C_Definition_of_a_Refugee_INA_101a42",
+    "H": "H_Affidavit_of_Jesniher_L",
+    "M": "M_Gomez_Natalia_Persecution_of_Protest_Leaders",
+    "N": "N_PBI_The_Peasant_Movement_in_Exile",
+    "O": "O_UN_Annual_Report_on_Human_Rights_2022",
+    "P": "P_IACHR_Six_Years_After_Social_Protests",
+}
+
+    match_title_to_segment(title, pdf_segments):
     normalized_title = normalize_for_matching(title)
     normalized_to_filename = {
         normalize_for_matching(name): name for name in pdf_segments.keys()
     }
+if key in manual_matches:
+    manual_file = manual_matches[key]
+    if manual_file in pdf_segments:
+        print(f"🧷 Manual match for {key}: {manual_file}")
+        return manual_file
 
     # Try fuzzy matching with rapidfuzz
     best_match = None
