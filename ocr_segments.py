@@ -56,6 +56,11 @@ def main():
         file_text = extract_text_from_pdf(file_path)
         results[file_path.name] = file_text
 
+        print(f"\n📄 Checking file: {file_path.name}")
+        print(f"🔍 Normalized filename: {normalize(file_path.stem)}")
+    for label in LABELS:
+        print(f"🆚 Comparing with: {normalize(label)} | Original: {label}")
+        
         # Try to match a label using normalized comparison
         matched = False
         for label in LABELS:
