@@ -31,6 +31,11 @@ def manual_matches = {
     "O": "O_UN_Annual_Report_on_Human_Rights_2022",
     "P": "P_IACHR_Six_Years_After_Social_Protests",
 }
+if key in manual_matches:
+    manual_filename = manual_matches[key]
+    if manual_filename in pdf_segments:
+        print(f"🧷 Manual match for {key}: {manual_filename}")
+        return manual_filename
 
     match_title_to_segment(title, pdf_segments):
     normalized_title = normalize_for_matching(title)
