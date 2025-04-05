@@ -16,18 +16,21 @@ def ocr_pdf(pdf_path):
 
 
 def clean_string(s):
-    s = re.sub(r'https?://\S+', '', s)  # remove URLs
-    s = re.sub(r'[^\w\s-]', '', s)      # remove special characters
-    s = re.sub(r'\s+', '_', s.strip())  # normalize spacing
+    s = s.replace("“", "").replace("”", "").replace("’", "").replace("‘", "")
+    s = s.replace("–", "-").replace("—", "-")
+    s = re.sub(r'https?://\S+', '', s)       # remove URLs
+    s = re.sub(r'[^\w\s-]', '', s)           # remove special characters
+    s = re.sub(r'\s+', '_', s.strip())       # replace spaces with underscores
     return s.lower()
 
 
-def simplify_title(title, max_words=12):
-    """Returns a simplified string of the first few words of the title."""
-    title = re.sub(r'["“”]', '', title)
+def simplify_title(title, max_words=10):
+    """Extract first N words of cleaned title."""
     title = re.sub(r'https?://\S+', '', title)
+    title = re.sub(r'[^\w\s-]', '', title)
+    title = title.replace("“", "").replace("”", "").replace("’", "").replace("‘", "")
     words = title.strip().split()
-    return ' '.join(words[:max_words])
+    return '_'.join(words[:max_words]).lower()
 
 
 def process_segments(toc_path, segments_dir, output_path="segments_text.json"):
@@ -46,21 +49,18 @@ def process_segments(toc_path, segments_dir, output_path="segments_text.json"):
             print(f"⚠️ Skipping entry with missing tab or title: {entry}")
             continue
 
-        # Clean and shorten TOC title
-        simplified_title = simplify_title(title)
-        match_string = clean_string(f"{tab}_{simplified_title}")
+        short_title = simplify_title(title)
+        match_key = clean_string(f"{tab}_{short_title}")
 
-        # Fuzzy match against available segment filenames
-        best_match, score = process.extractOne(
-            match_string, cleaned_filenames, scorer=fuzz.partial_ratio
-        )
+        # Match with fuzz, partial ratio
+        best_match, score = process.extractOne(match_key, cleaned_filenames, scorer=fuzz.partial_ratio)
 
-        if score >= 65:
-            index = cleaned_filenames.index(best_match)
-            matched_filename = segment_filenames[index]
+        if score >= 60:
+            matched_index = cleaned_filenames.index(best_match)
+            matched_filename = segment_filenames[matched_index]
             filepath = os.path.join(segments_dir, matched_filename)
         else:
-            print(f"⚠️ No match found for {tab} - {simplified_title} (score: {score})")
+            print(f"⚠️ No match found for {tab} - {title[:50]}... (score: {score})")
             continue
 
         print(f"🔍 Checking {filepath}...")
