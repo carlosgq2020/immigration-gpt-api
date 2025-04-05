@@ -50,14 +50,16 @@ def main():
         matches = process.extract(normalized_key, cleaned_filenames, scorer=fuzz.partial_ratio, limit=5)
         best_match, score = matches[0][0], matches[0][1] if matches else ("", 0)
 
-        if score < 80:
-            print(f"\n⚠️ No match found for {tab} - {title}")
-            print(f"   🔍 Normalized: {normalized_key}")
-            print(f"   🔍 Top guesses:")
-            for name, s, _ in matches:
-                print(f"     → {name} (score: {s})")
-            continue
-
+if score < 70:
+    print(f"\n❌ No match found for {tab} - {title}")
+    print(f"   🔍 Normalized: {normalized_key}")
+    print(f"   🔍 Top guesses:")
+    for name, s, _ in matches:
+        print(f"     → {name} (score: {s})")
+    continue
+elif score < 85:
+    print(f"\n⚠️ Low-confidence match for {tab} - {title}")
+    print(f"   🔗 Using: {best_match} (score: {score})")
         match_index = cleaned_filenames.index(best_match)
         matched_file = filenames[match_index]
         pdf_path = segments_dir / f"{matched_file}.pdf"
