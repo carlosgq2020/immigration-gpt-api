@@ -80,6 +80,19 @@ fallback_filename = next(
     else:
         print(f"⚠️ Still no match for: {raw_title}")
 
+manual_matches = {
+    "m": "M_Gomez_Natalia_Persecution_of_rural_protest_movement_leaders.pdf",
+    "n": "N_PBI_The_Peasant_Movement_in_Exile.pdf",
+    "o": "O_UN_Annual_Report_on_Human_Rights_in_Nicaragua.pdf",
+    "p": "P_IACHR_Nicaragua_Six_Years_after_Social_Protests.pdf",
+}
+
+if key.lower() in manual_matches:
+    filename = manual_matches[key.lower()]
+    if filename in pdf_segments:
+        print(f"🧷 Manual match for {key}: {filename}")
+        continue
+
     # OCR the PDF
     pdf_path = os.path.join(SEGMENTS_DIR, matched_filename)
     print(f"🔍 OCRing {matched_filename}...")
