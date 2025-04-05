@@ -33,22 +33,33 @@ def simplify_title(title, max_words=10):
     return '_'.join(words[:max_words]).lower()
 
 
-from rapidfuzz import process, fuzz
+import re
 import unicodedata
 
-def normalize_title(title, tab, max_words=20):
+def normalize_title(title, tab, max_words=25):
+    # Combine tab and title
     full_title = f"{tab} {title}"
 
-    # Normalize: lowercase, ASCII only
-    title = unicodedata.normalize("NFKD", full_title).encode("ascii", "ignore").decode("ascii").lower()
+    # Normalize to ASCII
+    full_title = unicodedata.normalize("NFKD", full_title).encode("ascii", "ignore").decode("ascii").lower()
 
-    # Remove URLs, punctuation, extra spaces
-    title = re.sub(r'https?://\S+', '', title)
-    title = re.sub(r'[^\w\s]', '', title)
-    title = re.sub(r'\s+', ' ', title.strip())
+    # Remove URLs
+    full_title = re.sub(r'https?://\S+', '', full_title)
 
-    # Limit to max_words
-    words = title.split()[:max_words]
+    # Remove anything in quotes or parentheses
+    full_title = re.sub(r'["“”‘’\'()]', '', full_title)
+
+    # Strip common terms
+    full_title = full_title.replace("available at", "").replace("last accessed", "")
+
+    # Remove punctuation
+    full_title = re.sub(r'[^\w\s]', '', full_title)
+
+    # Collapse multiple spaces
+    full_title = re.sub(r'\s+', ' ', full_title.strip())
+
+    # Limit words
+    words = full_title.split()[:max_words]
     return "_".join(words)
 
     for entry in toc:
@@ -64,10 +75,12 @@ def normalize_title(title, tab, max_words=20):
     cleaned_filenames = [os.path.splitext(f)[0].lower() for f in segment_filenames]
 
     matches = process.extract(normalized_key, cleaned_filenames, scorer=fuzz.partial_ratio, limit=5)
-    print(f"\n🔍 Trying to match: {normalized_key}")
-for match in matches:
-    print(f"  → {match[0]} (score: {match[1]})")
-
+print(f"\n🔎 No match for TOC entry: {tab} - {title}")
+print(f"   Normalized key: {normalized_key}")
+print("   Top guesses:")
+for name, score, _ in matches:
+    print(f"     → {name} (score: {score})")
+    
     if score >= 55:
         matched_index = cleaned_filenames.index(best_match)
         matched_filename = segment_filenames[matched_index]
