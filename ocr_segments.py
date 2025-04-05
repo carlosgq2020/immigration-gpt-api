@@ -49,29 +49,28 @@ def main():
     results = {}
     segment_files = sorted(SEGMENTS_DIR.glob("*.pdf"))
     unmatched_labels = set(LABELS)
+    matched_files = {}
 
     for file_path in tqdm(segment_files, desc="Processing PDFs"):
-        print(f"🔍 Checking {file_path.name}...")
+        print(f"\n🔍 Checking {file_path.name}...")
 
         file_text = extract_text_from_pdf(file_path)
         results[file_path.name] = file_text
 
-        print(f"\n📄 Checking file: {file_path.name}")
-        print(f"🔍 Normalized filename: {normalize(file_path.stem)}")
-    for label in LABELS:
-        print(f"🆚 Comparing with: {normalize(label)} | Original: {label}")
-        
-        # Try to match a label using normalized comparison
+        normalized_filename = normalize(file_path.stem)
+
         matched = False
         for label in LABELS:
-            if normalize(label).startswith(normalize(file_path.stem)):
-                print(f"✅ Matched: {label}")
+            normalized_label = normalize(label)
+            if normalized_filename == normalized_label or normalized_filename.startswith(normalized_label):
+                print(f"✅ Matched: {file_path.name} <---> {label}")
                 unmatched_labels.discard(label)
+                matched_files[file_path.name] = label
                 matched = True
                 break
 
         if not matched:
-            print(f"⚠️ No match found for {file_path.stem}")
+            print(f"⚠️ No match found for {file_path.name}")
 
     # Report unmatched labels
     if unmatched_labels:
@@ -79,11 +78,12 @@ def main():
         for label in unmatched_labels:
             print(f" - {label}")
 
-    # Save results
+    # Save OCR results
     with open(RESULTS_FILE, "w") as f:
         json.dump(results, f, indent=2)
 
     print(f"\n📝 Saved OCR results to: {RESULTS_FILE}")
+    print(f"\n📋 Matched {len(matched_files)} of {len(LABELS)} expected labels.")
 
 
 if __name__ == "__main__":
