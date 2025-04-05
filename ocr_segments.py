@@ -17,9 +17,17 @@ def ocr_pdf(pdf_path):
 
 def clean_string(s):
     s = re.sub(r'https?://\S+', '', s)  # remove URLs
-    s = re.sub(r'[^\w\s]', '', s)       # remove punctuation
-    s = re.sub(r'\s+', '_', s.strip())  # normalize spaces
+    s = re.sub(r'[^\w\s-]', '', s)      # remove special characters
+    s = re.sub(r'\s+', '_', s.strip())  # normalize spacing
     return s.lower()
+
+
+def simplify_title(title, max_words=12):
+    """Returns a simplified string of the first few words of the title."""
+    title = re.sub(r'["“”]', '', title)
+    title = re.sub(r'https?://\S+', '', title)
+    words = title.strip().split()
+    return ' '.join(words[:max_words])
 
 
 def process_segments(toc_path, segments_dir, output_path="segments_text.json"):
@@ -31,26 +39,28 @@ def process_segments(toc_path, segments_dir, output_path="segments_text.json"):
     cleaned_filenames = [clean_string(f) for f in segment_filenames]
 
     for entry in toc:
-        tab = entry.get("tab", "")
-        title = entry.get("title", "")
+        tab = entry.get("tab", "").strip()
+        title = entry.get("title", "").strip()
+
         if not tab or not title:
             print(f"⚠️ Skipping entry with missing tab or title: {entry}")
             continue
 
-        # Clean and prep match target
-        search_string = clean_string(f"{tab}_{title}")
+        # Clean and shorten TOC title
+        simplified_title = simplify_title(title)
+        match_string = clean_string(f"{tab}_{simplified_title}")
 
-        # Match to filenames
+        # Fuzzy match against available segment filenames
         best_match, score = process.extractOne(
-            search_string, cleaned_filenames, scorer=fuzz.partial_ratio
+            match_string, cleaned_filenames, scorer=fuzz.partial_ratio
         )
 
-        if score >= 70:
+        if score >= 65:
             index = cleaned_filenames.index(best_match)
             matched_filename = segment_filenames[index]
             filepath = os.path.join(segments_dir, matched_filename)
         else:
-            print(f"⚠️ No match found for {tab} - {title} (score: {score})")
+            print(f"⚠️ No match found for {tab} - {simplified_title} (score: {score})")
             continue
 
         print(f"🔍 Checking {filepath}...")
