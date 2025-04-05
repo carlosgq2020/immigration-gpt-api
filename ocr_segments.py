@@ -1,123 +1,81 @@
 import os
 import json
 import re
-import unicodedata
 from pathlib import Path
-from tqdm import tqdm
-from PyPDF2 import PdfReader
-from thefuzz import process, fuzz
-import pytesseract
 from pdf2image import convert_from_path
+import pytesseract
+from rapidfuzz import process, fuzz
 
-# Normalize the TOC entry into a comparable format
-def normalize_title(title, tab, max_words=25):
-    combined = f"{tab} {title}".lower()
-    combined = unicodedata.normalize("NFKD", combined).encode("ascii", "ignore").decode("ascii")
-    combined = re.sub(r'https?://\S+', '', combined)  # strip URLs
-    combined = re.sub(r'["“”‘’\'()]', '', combined)  # strip quotes/parentheses
-    combined = re.sub(r'available at|last accessed', '', combined)  # clean phrases
-    combined = re.sub(r'[^\w\s]', '', combined)  # remove punctuation
-    combined = re.sub(r'\s+', ' ', combined.strip())  # collapse spaces
-    return "_".join(combined.split()[:max_words])  # limit length
+# Path setup
+TOC_FILE = "toc_output.json"
+SEGMENTS_DIR = "output_segments"
+OUTPUT_JSON = "segments_text.json"
 
-# Run OCR and return text
-def ocr_pdf(path):
-    images = convert_from_path(path)
-    text = ''
-    for img in images:
-        text += pytesseract.image_to_string(img)
-    return text
+# Load TOC
+with open(TOC_FILE, "r") as f:
+    toc = json.load(f)
 
-# Main OCR matching routine
-def main():
-    segments_dir = Path("output_segments")
-    toc_path = Path("toc_output.json")
-    output_path = Path("segments_text.json")
+# Get available segment filenames (stem only)
+pdf_segments = {
+    Path(f).stem: f for f in os.listdir(SEGMENTS_DIR) if f.endswith(".pdf")
+}
 
-    with toc_path.open() as f:
-        toc = json.load(f)
+# Normalize helper
+def normalize(text):
+    return re.sub(r"[^\w\s]", "", text).strip().lower()
 
-    filenames = [p.stem for p in segments_dir.glob("*.pdf")]
-    cleaned_filenames = [re.sub(r'[^\w\s]', '', f).lower() for f in filenames]
+# Store OCR results
+results = {}
 
-    results = {}
-    for entry in toc:
-        tab = entry.get("tab", "").strip()
-        title = entry.get("title", "").strip()
-        normalized_key = normalize_title(title, tab)
+# Try matching each TOC entry to a segment file
+for entry in toc:
+    key = entry["key"]
+    title = entry["title"]
+    raw = f"{key} - {title}"
+    normalized_key = normalize(raw)
 
-        # Try to match with filename
-        matches = process.extract(normalized_key, cleaned_filenames, scorer=fuzz.partial_ratio, limit=5)
-        best_match, score = matches[0][0], matches[0][1] if matches else ("", 0)
+    matches = process.extract(
+        normalized_key,
+        pdf_segments.keys(),
+        scorer=fuzz.partial_ratio,
+        limit=3
+    )
 
-# inside your loop, after generating `normalized_key` and `matches`
-best_match, score, _ = matches[0]
-
-if score >= 85:
-    # High-confidence match
-    print(f"\n✅ Match found for {tab} - {title}")
-    matched_filename = best_match
-
-elif score >= 70:
-    # Low-confidence match, but accept
-    print(f"\n⚠️ Low-confidence match for {tab} - {title}")
-    print(f"   🔗 Using: {best_match} (score: {score})")
-    matched_filename = best_match
-
-else:
-    # No acceptable match
-    print(f"\n❌ No match found for {tab} - {title}")
-    print(f"   🔍 Normalized: {normalized_key}")
-    print(f"   🔍 Top 3 guesses:")
-    for name, s, _ in matches[:3]:
-        print(f"     → {name} (score: {s})")
-    continue  # skip this item
-        try:
-            text = ocr_pdf(pdf_path)
-            results[matched_file] = {
-                "tab": tab,
-                "title": title,
-                "text": text
-            }
-            print(f"✅ Finished: {matched_file}")
-        except Exception as e:
-            print(f"❌ Error processing {pdf_path}: {e}")
-
-    with output_path.open("w") as f:
-        json.dump(results, f, indent=2)
-
-    print(f"\n📝 Saved OCR results to: {output_path}")
-
-if __name__ == "__main__":
-    main()
-
-    if not tab or not title:
+    if not matches:
+        print(f"❌ No match candidates for: {raw}")
         continue
 
-    normalized_key = normalize_title(title, tab)
+    best_match, score, _ = matches[0]
 
-    # Prepare filenames for comparison (without .pdf)
-    cleaned_filenames = [os.path.splitext(f)[0].lower() for f in segment_filenames]
+    if score >= 85:
+        matched_filename = pdf_segments[best_match]
+        print(f"✅ Match: {raw}\n   ↪ {matched_filename} (score: {score})")
 
-    matches = process.extract(normalized_key, cleaned_filenames, scorer=fuzz.partial_ratio, limit=5)
-print(f"\n🔎 No match for TOC entry: {tab} - {title}")
-print(f"   Normalized key: {normalized_key}")
-print("   Top guesses:")
-for name, score, _ in matches:
-    print(f"     → {name} (score: {score})")
-    
-    if score >= 55:
-        matched_index = cleaned_filenames.index(best_match)
-        matched_filename = segment_filenames[matched_index]
-        filepath = os.path.join(segments_dir, matched_filename)
+    elif score >= 70:
+        matched_filename = pdf_segments[best_match]
+        print(f"⚠️ Low-confidence match for: {raw}")
+        print(f"   ↪ {matched_filename} (score: {score})")
+
     else:
-        print(f"⚠️ No match found for {tab} - {title[:70]}... (score: {score})")
+        print(f"❌ No match for: {raw}")
+        print("   Top guesses:")
+        for name, s, _ in matches:
+            print(f"     - {name} (score: {s})")
         continue
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(results, f, indent=2, ensure_ascii=False)
 
-    print(f"\n📝 Saved OCR results to: {output_path}")
+    # OCR the PDF
+    pdf_path = os.path.join(SEGMENTS_DIR, matched_filename)
+    print(f"🔍 OCRing {matched_filename}...")
+    try:
+        images = convert_from_path(pdf_path)
+        text = "\n".join(pytesseract.image_to_string(img) for img in images)
+        results[raw] = text
+        print(f"✅ Finished: {matched_filename}")
+    except Exception as e:
+        print(f"❌ OCR failed for {matched_filename}: {e}")
 
+# Save results
+with open(OUTPUT_JSON, "w") as f:
+    json.dump(results, f, indent=2)
 
-if __name__ == "__main__":
-    process_segments("toc_output.json", "output_segments")
+print(f"\n📝 Saved OCR results to: {OUTPUT_JSON}")
