@@ -48,19 +48,21 @@ def match_title_to_segment(title, pdf_segments):
             return seg_name
 
     # Manual override for known edge cases
-    manual_matches = {
-        "H": "H_Affidavit_of_Jesniher_L.pdf",
-        "M": "M_Gomez_Natalia_Persecution_of_rural_protest_movement_leaders.pdf",
-        "N": "N_PBI_The_Peasant_Movement_in_Exile.pdf",
-        "O": "O_UN_Annual_Report_on_Human_Rights_in_Nicaragua.pdf",
-        "P": "P_IACHR_Six_Years_after_Social_Protests.pdf",
-    }
+   manual_matches = {
+    "TAB": "TAB_Identity_Documents.pdf",
+    "C": "C_Definition_of_a_Refugee_INA_101a42.pdf",
+    "H": "H_Affidavit_of_Jesniher_L.pdf",
+    "M": "M_Gomez_Natalia_Persecution_of_rural_protest_movement.pdf",
+    "N": "N_PBI_The_Peasant_Movement_in_Exile.pdf",
+    "O": "O_UN_Annual_Report_on_Human_Rights_Nicaragua_2022.pdf",
+    "P": "P_IACHR_Six_Years_after_Social_Protests.pdf",
+}
 
-    if key in manual_matches:
-        manual_file = manual_matches[key]
-        if manual_file.replace(".pdf", "") in pdf_segments:
+        if key in manual_matches:
+        manual_file = manual_matches[key].replace(".pdf", "")
+        if manual_file in pdf_segments:
             print(f"🧷 Manual match for {key}: {manual_file}")
-            return manual_file.replace(".pdf", "")
+            return manual_file
 
     return None
 
