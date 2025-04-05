@@ -1,143 +1,85 @@
 import os
-import json
 import re
+import json
 from pathlib import Path
-from difflib import get_close_matches
-from rapidfuzz import fuzz
+from PyPDF2 import PdfReader
+from tqdm import tqdm
 
-TOC_FILE = "toc.json"
-SEGMENT_FOLDER = "output_segments"
-OCR_OUTPUT_FILE = "segments_text.json"
+# Load labels to match against filenames
+LABELS = [
+    "TAB - PAGE IDENTITY DOCUMENTS",
+    "A - Copy of Respondent's birth certificate with certified translation",
+    "B - Copy of Respondent's Republic of Nicaragua Identification Card with certified translation",
+    "C - Definition of a Refugee INA § 101 (a)(42)",
+    "D - Respondent's Declaration in both English and Spanish",
+    "E - Affidavit of Juan De Dios Leal Reynosa in support of Respondent with certified English translations",
+    "F - Affidavit of Fatima Del Carmen Oporta Solorzano in support of Respondent with certified English translations",
+    "G - Affidavit of Denis Bismark Lopez Oporta in support of Respondent with certified English translations",
+    "H - Affidavit of Jesniher L. in support of Respondent with certified English translation",
+    "I - Nicaragua 2023 Human Rights Report",
+    "J - Nicaragua Travel Advisory",
+    "K - Nicaragua Amnesty International Annual Report",
+    "L - Nicaragua Human Rights Watch",
+    "M - Gomez, Natalia “Persecution of rural protest movement leaders continue as crisis deepens in Nicaragua” Sept. 06, 2018",
+    "N - PBI “The Peasant Movement in Exile” Jan. 01, 2021",
+    "O - UN “Annual report of the United Nations High Commissioner for Human Rights on the situation of human rights in Nicaragua” Mar. 07, 2022",
+    "P - IACHR ”Nicaragua: Six Years after Social Protests, IACHR Urges Reestablishment of",
+]
 
-def match_title_to_segment(title, pdf_segments):
-    from difflib import get_close_matches
+SEGMENTS_DIR = Path("output_segments")
+RESULTS_FILE = Path("segments_text.json")
 
-    manual_matches = {
-        "TAB": "TAB_Page_Identity_Documents",
-        "C": "C_Definition_of_a_Refugee_INA_101a42",
-        "H": "H_Affidavit_of_Jesniher_L",
-        "M": "M_Gomez_Natalia_Persecution_of_Protest_Leaders",
-        "N": "N_PBI_The_Peasant_Movement_in_Exile",
-        "O": "O_UN_Annual_Report_on_Human_Rights_2022",
-        "P": "P_IACHR_Six_Years_After_Social_Protests",
-    }
 
-    for key in manual_matches:
-        if title.startswith(key):
-            manual_filename = manual_matches[key]
-            if manual_filename in pdf_segments:
-                print(f"🧷 Manual match for {title}: {manual_filename}")
-                return manual_filename
+def normalize(text):
+    return re.sub(r'[^a-z0-9]', '', text.lower())
 
-    # Fallback to fuzzy matching
-    matches = get_close_matches(title, pdf_segments, n=1, cutoff=0.6)
-    if matches:
-        return matches[0]
-    return None
 
-def normalize_for_matching(text):
-    return re.sub(r"[^a-z0-9]", "", text.lower())
+def extract_text_from_pdf(file_path):
+    try:
+        reader = PdfReader(file_path)
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text() or ""
+        return text.strip()
+    except Exception as e:
+        return f"⚠️ Error reading {file_path.name}: {e}"
 
-def load_toc():
-    with open(TOC_FILE, "r") as f:
-        return json.load(f)
-
-def load_pdf_segments():
-    return {
-        f.name.replace(".pdf", ""): f
-        for f in Path(SEGMENT_FOLDER).glob("*.pdf")
-    }
-
-def manual_matches = {
-    "TAB": "TAB_Page_Identity_Documents",  # This must match the filename (minus .pdf)
-    "C": "C_Definition_of_a_Refugee_INA_101a42",
-    "H": "H_Affidavit_of_Jesniher_L",
-    "M": "M_Gomez_Natalia_Persecution_of_Protest_Leaders",
-    "N": "N_PBI_The_Peasant_Movement_in_Exile",
-    "O": "O_UN_Annual_Report_on_Human_Rights_2022",
-    "P": "P_IACHR_Six_Years_After_Social_Protests",
-}
-if key in manual_matches:
-    manual_filename = manual_matches[key]
-    if manual_filename in pdf_segments:
-        print(f"🧷 Manual match for {key}: {manual_filename}")
-        return manual_filename
-
-    match_title_to_segment(title, pdf_segments):
-    normalized_title = normalize_for_matching(title)
-    normalized_to_filename = {
-        normalize_for_matching(name): name for name in pdf_segments.keys()
-    }
-if key in manual_matches:
-    manual_file = manual_matches[key]
-    if manual_file in pdf_segments:
-        print(f"🧷 Manual match for {key}: {manual_file}")
-        return manual_file
-
-    # Try fuzzy matching with rapidfuzz
-    best_match = None
-    best_score = 0
-    for norm_name, original_name in normalized_to_filename.items():
-        score = fuzz.ratio(normalized_title, norm_name)
-        if score > best_score:
-            best_score = score
-            best_match = original_name
-
-    if best_score >= 85:
-        return best_match
-
-    # Fallback: match using just the TOC key like "H", "M"
-    key = title.split(" ")[0].strip(" -")
-    for seg_name in pdf_segments:
-        if seg_name.startswith(f"{key}_"):
-            print(f"🟡 Fallback match using key '{key}': {seg_name}")
-            return seg_name
-
-    # Manual override for known edge cases
-   manual_matches = {
-    "TAB": "TAB_Identity_Documents.pdf",
-    "C": "C_Definition_of_a_Refugee_INA_101a42.pdf",
-    "H": "H_Affidavit_of_Jesniher_L.pdf",
-    "M": "M_Gomez_Natalia_Persecution_of_rural_protest_movement.pdf",
-    "N": "N_PBI_The_Peasant_Movement_in_Exile.pdf",
-    "O": "O_UN_Annual_Report_on_Human_Rights_Nicaragua_2022.pdf",
-    "P": "P_IACHR_Six_Years_after_Social_Protests.pdf",
-}
-
-        if key in manual_matches:
-        manual_file = manual_matches[key].replace(".pdf", "")
-        if manual_file in pdf_segments:
-            print(f"🧷 Manual match for {key}: {manual_file}")
-            return manual_file
-
-    return None
-
-def run_ocr_on_pdf(pdf_path):
-    # Placeholder for actual OCR logic
-    return f"[OCR output for {pdf_path.name}]"
 
 def main():
-    toc_entries = load_toc()
-    pdf_segments = load_pdf_segments()
     results = {}
+    segment_files = sorted(SEGMENTS_DIR.glob("*.pdf"))
+    unmatched_labels = set(LABELS)
 
-    for entry in toc_entries:
-        title = entry.get("title", "")
-        print(f"\n🔍 Checking {title}...")
+    for file_path in tqdm(segment_files, desc="Processing PDFs"):
+        print(f"🔍 Checking {file_path.name}...")
 
-        match = match_title_to_segment(title, pdf_segments)
+        file_text = extract_text_from_pdf(file_path)
+        results[file_path.name] = file_text
 
-        if match:
-            pdf_path = pdf_segments[match]
-            ocr_result = run_ocr_on_pdf(pdf_path)
-            results[match] = ocr_result
-            print(f"✅ Finished: {match}")
-        else:
-            print(f"⚠️ No match found for {title}")
+        # Try to match a label using normalized comparison
+        matched = False
+        for label in LABELS:
+            if normalize(label).startswith(normalize(file_path.stem)):
+                print(f"✅ Matched: {label}")
+                unmatched_labels.discard(label)
+                matched = True
+                break
 
-    with open(OCR_OUTPUT_FILE, "w") as f:
+        if not matched:
+            print(f"⚠️ No match found for {file_path.stem}")
+
+    # Report unmatched labels
+    if unmatched_labels:
+        print("\n❌ Unmatched Labels:")
+        for label in unmatched_labels:
+            print(f" - {label}")
+
+    # Save results
+    with open(RESULTS_FILE, "w") as f:
         json.dump(results, f, indent=2)
-    print(f"\n📝 Saved OCR results to: {OCR_OUTPUT_FILE}")
+
+    print(f"\n📝 Saved OCR results to: {RESULTS_FILE}")
+
 
 if __name__ == "__main__":
     main()
