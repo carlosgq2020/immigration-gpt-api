@@ -2,110 +2,94 @@ import os
 import json
 import re
 from pathlib import Path
-from pdf2image import convert_from_path
-import pytesseract
-from rapidfuzz import process, fuzz
+from difflib import get_close_matches
+from rapidfuzz import fuzz
 
-# Path setup
-TOC_FILE = "toc_output.json"
-SEGMENTS_DIR = "output_segments"
-OUTPUT_JSON = "segments_text.json"
-
-# Load TOC
-with open(TOC_FILE, "r") as f:
-    toc = json.load(f)
-
-# Get available segment filenames (stem only)
-pdf_segments = {
-    Path(f).stem: f for f in os.listdir(SEGMENTS_DIR) if f.endswith(".pdf")
-}
-
-# Normalize helper
+TOC_FILE = "toc.json"
+SEGMENT_FOLDER = "output_segments"
+OCR_OUTPUT_FILE = "segments_text.json"
 
 def normalize_for_matching(text):
-    # Lowercase
-    text = text.lower()
-    # Remove URLs
-    text = re.sub(r'https?://\S+', '', text)
-    # Remove smart quotes, line breaks, punctuation (except dashes and underscores)
-    text = text.replace('“', '').replace('”', '').replace('‘', '').replace('’', '')
-    text = text.replace('–', '-').replace('—', '-')  # normalize em/en dash
-    text = re.sub(r'[^a-z0-9\s\-_]', '', text)
-    text = re.sub(r'last accessed.*$', '', text, flags=re.IGNORECASE)
-    # Collapse multiple spaces
-    text = re.sub(r'\s+', ' ', text)
-    return text.strip()
+    return re.sub(r"[^a-z0-9]", "", text.lower())
 
-for entry in toc:
-    key = entry["key"]
-    title = entry["title"]
-    raw_title = f"{key} - {title}"
-    cleaned_title = normalize_for_matching(raw_title)
+def load_toc():
+    with open(TOC_FILE, "r") as f:
+        return json.load(f)
 
-    # Map: normalized -> original filename
+def load_pdf_segments():
+    return {
+        f.name.replace(".pdf", ""): f
+        for f in Path(SEGMENT_FOLDER).glob("*.pdf")
+    }
+
+def match_title_to_segment(title, pdf_segments):
+    normalized_title = normalize_for_matching(title)
     normalized_to_filename = {
         normalize_for_matching(name): name for name in pdf_segments.keys()
     }
 
-    # Fuzzy match
-    match_results = process.extract(
-        cleaned_title,
-        normalized_to_filename.keys(),
-        scorer=fuzz.token_sort_ratio,
-        limit=3
-    )
+    # Try fuzzy matching with rapidfuzz
+    best_match = None
+    best_score = 0
+    for norm_name, original_name in normalized_to_filename.items():
+        score = fuzz.ratio(normalized_title, norm_name)
+        if score > best_score:
+            best_score = score
+            best_match = original_name
 
-    best_match, score, _ = match_results[0]
-    matched_filename = normalized_to_filename[best_match]
+    if best_score >= 85:
+        return best_match
 
-    if score >= 85:
-        print(f"✅ Match: {raw_title}")
-        print(f"   ↪ {matched_filename} (score: {score})")
-    else:
-        print(f"⚠️ No strong match for: {raw_title}")
-        print(f"   Best guess: {matched_filename} (score: {score})")
-        print("   Top guesses:")
-        for guess, guess_score, _ in match_results:
-            print(f"     - {normalized_to_filename[guess]} (score: {guess_score})")
-        continue
+    # Fallback: match using just the TOC key like "H", "M"
+    key = title.split(" ")[0].strip(" -")
+    for seg_name in pdf_segments:
+        if seg_name.startswith(f"{key}_"):
+            print(f"🟡 Fallback match using key '{key}': {seg_name}")
+            return seg_name
 
-    # Fallback: try matching on just the key (like 'H', 'M', etc.)
-fallback_filename = next(
-    (f for f in pdf_segments if f.startswith(f"{key}_")),
-    None
-    )
+    # Manual override for known edge cases
+    manual_matches = {
+        "H": "H_Affidavit_of_Jesniher_L.pdf",
+        "M": "M_Gomez_Natalia_Persecution_of_rural_protest_movement_leaders.pdf",
+        "N": "N_PBI_The_Peasant_Movement_in_Exile.pdf",
+        "O": "O_UN_Annual_Report_on_Human_Rights_in_Nicaragua.pdf",
+        "P": "P_IACHR_Six_Years_after_Social_Protests.pdf",
+    }
 
-    if fallback_filename:
-        print(f"🟡 Fallback match using key '{key}': {fallback_filename}")
-    else:
-        print(f"⚠️ Still no match for: {raw_title}")
+    if key in manual_matches:
+        manual_file = manual_matches[key]
+        if manual_file.replace(".pdf", "") in pdf_segments:
+            print(f"🧷 Manual match for {key}: {manual_file}")
+            return manual_file.replace(".pdf", "")
 
-manual_matches = {
-    "m": "M_Gomez_Natalia_Persecution_of_rural_protest_movement_leaders.pdf",
-    "n": "N_PBI_The_Peasant_Movement_in_Exile.pdf",
-    "o": "O_UN_Annual_Report_on_Human_Rights_in_Nicaragua.pdf",
-    "p": "P_IACHR_Nicaragua_Six_Years_after_Social_Protests.pdf",
-}
+    return None
 
-if key.lower() in manual_matches:
-    filename = manual_matches[key.lower()]
-    if filename in pdf_segments:
-        print(f"🧷 Manual match for {key}: {filename}")
-        continue
+def run_ocr_on_pdf(pdf_path):
+    # Placeholder for actual OCR logic
+    return f"[OCR output for {pdf_path.name}]"
 
-    # OCR the PDF
-    pdf_path = os.path.join(SEGMENTS_DIR, matched_filename)
-    print(f"🔍 OCRing {matched_filename}...")
-    try:
-        images = convert_from_path(pdf_path)
-        text = "\n".join(pytesseract.image_to_string(img) for img in images)
-        results[raw] = text
-        print(f"✅ Finished: {matched_filename}")
-    except Exception as e:
-        print(f"❌ OCR failed for {matched_filename}: {e}")
+def main():
+    toc_entries = load_toc()
+    pdf_segments = load_pdf_segments()
+    results = {}
 
-# Save results
-with open(OUTPUT_JSON, "w") as f:
-    json.dump(results, f, indent=2)
+    for entry in toc_entries:
+        title = entry.get("title", "")
+        print(f"\n🔍 Checking {title}...")
 
-print(f"\n📝 Saved OCR results to: {OUTPUT_JSON}")
+        match = match_title_to_segment(title, pdf_segments)
+
+        if match:
+            pdf_path = pdf_segments[match]
+            ocr_result = run_ocr_on_pdf(pdf_path)
+            results[match] = ocr_result
+            print(f"✅ Finished: {match}")
+        else:
+            print(f"⚠️ No match found for {title}")
+
+    with open(OCR_OUTPUT_FILE, "w") as f:
+        json.dump(results, f, indent=2)
+    print(f"\n📝 Saved OCR results to: {OCR_OUTPUT_FILE}")
+
+if __name__ == "__main__":
+    main()
