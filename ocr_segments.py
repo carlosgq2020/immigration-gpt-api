@@ -6,7 +6,8 @@ import fitz  # PyMuPDF
 from pdf2image import convert_from_path
 from PIL import Image
 
-def sanitize_filename(title: str, max_length=150) -> str:
+def title = title.replace('\n', ' ').strip()
+    sanitize_filename(title: str, max_length=150) -> str:
     safe = re.sub(r'[^\w\s-]', '', title)
     safe = re.sub(r'[\s]+', '_', safe)
     return safe[:max_length]
@@ -38,8 +39,8 @@ def main():
             print(f"⚠️ Missing tab or title in entry: {entry}")
             continue
 
-        expected_filename_prefix = f"{tab}_{sanitize_filename(title)}"
-        match = next((f for f in filenames if f.startswith(expected_filename_prefix)), None)
+        expected_filename = f"{tab}_{sanitize_filename(title)}.pdf"
+        match = next((f for f in filenames if f == expected_filename), None)
 
         if not match:
             print(f"⚠️ No match found for {tab} - {title}")
