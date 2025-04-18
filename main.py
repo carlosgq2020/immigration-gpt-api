@@ -1,14 +1,14 @@
 from dotenv import load_dotenv
 import os
+import json
+from tempfile import SpooledTemporaryFile
+from typing import List, Optional
+
 import openai
 from fastapi import FastAPI, UploadFile, File, Form
 from pydantic import BaseModel
-from typing import List, Optional
-from tempfile import SpooledTemporaryFile
 import docx
 import fitz  # PyMuPDF
-import json
-import logging
 
 # === Load environment and set API key ===
 load_dotenv()
@@ -20,18 +20,21 @@ client = openai.OpenAI(api_key=openai_api_key)
 app = FastAPI(
     title="LawQB Immigration Legal AI API",
     description="Upload declarations and receive legal analysis and motion drafting assistance. Powered by GPT-4.",
-    version="1.0.0"
+    version="1.0.0",
 )
+
 
 @app.get("/health")
 def healthcheck():
     return {"status": "ok"}
 
-# === Models ===
+
+# === /analyze endpoint ===
 class AnalyzeRequest(BaseModel):
     question: str
     jurisdiction: Optional[str] = None
     preferredSources: Optional[List[str]] = None
+
 
 class AnalyzeResponse(BaseModel):
     issue: str
@@ -41,6 +44,7 @@ class AnalyzeResponse(BaseModel):
     citations: List[str]
     conflictsOrAmbiguities: str
     verificationNotes: str
+
 
 @app.post("/analyze", response_model=AnalyzeResponse)
 def analyze(req: AnalyzeRequest):
@@ -59,24 +63,28 @@ Respond in raw JSON only (no markdown), with the following fields:
 - conflictsOrAmbiguities
 - verificationNotes
 """
-
     try:
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "You are an immigration law expert. Reply using only IRAC format in JSON."},
-                {"role": "user", "content": prompt}
+                {
+                    "role": "system",
+                    "content": "You are an immigration law expert. Reply using only IRAC format in JSON.",
+                },
+                {"role": "user", "content": prompt},
             ],
-            temperature=0.3
+            temperature=0.3,
         )
         content = response.choices[0].message.content.strip()
         if content.startswith("```json"):
             content = content.replace("```json", "").strip()
         if content.endswith("```"):
             content = content[:-3].strip()
+
         print("GPT IRAC Output:", content)
         parsed = json.loads(content)
         return AnalyzeResponse(**parsed)
+
     except Exception as e:
         print(f"❌ Analyze endpoint error: {e}")
         return AnalyzeResponse(
@@ -86,10 +94,11 @@ Respond in raw JSON only (no markdown), with the following fields:
             conclusion="",
             citations=[],
             conflictsOrAmbiguities="",
-            verificationNotes=f"Exception: {str(e)}"
+            verificationNotes=f"Exception: {str(e)}",
         )
 
-# === Evidence Summarization ===
+
+# === /uploadEvidence endpoint ===
 class SummarizeEvidenceResponse(BaseModel):
     filename: str
     sizeInBytes: int
@@ -103,11 +112,12 @@ class SummarizeEvidenceResponse(BaseModel):
     recommendation: str
     verificationNotes: str
 
+
 @app.post("/uploadEvidence", response_model=SummarizeEvidenceResponse)
 async def upload_evidence(
     file: UploadFile = File(...),
     jurisdiction: Optional[str] = Form(None),
-    context: Optional[str] = Form("Asylum")
+    context: Optional[str] = Form("Asylum"),
 ):
     ext = file.filename.lower().split(".")[-1]
     content = ""
@@ -123,31 +133,42 @@ async def upload_evidence(
         temp_file.seek(0)
         readable_size = f"{round(total_bytes / 1024, 1)} KB"
 
+        # ---------- DOCX ----------
         if ext == "docx":
             document = docx.Document(temp_file)
-            content = "\n".join([p.text for p in document.paragraphs if p.text.strip()])
-       elif ext == "pdf":
+            content = "\n".join(
+                [p.text for p in document.paragraphs if p.text.strip()]
+            )
+
+        # ---------- PDF (with OCR fallback) ----------
+        elif ext == "pdf":
             pdf_bytes = temp_file.read()
 
-    # ---------- 1) try embedded text ----------
-    import fitz
+            # 1) try embedded text
             pdf = fitz.open(stream=pdf_bytes, filetype="pdf")
             content = "".join(page.get_text() or "" for page in pdf)
             pdf.close()
 
-    # ---------- 2) OCR fallback if empty ----------
-    if not content.strip():
-        from pdf2image import convert_from_bytes
-        import pytesseract, io
+            # 2) OCR fallback if empty
+            if not content.strip():
+                from pdf2image import convert_from_bytes
+                import pytesseract
+                import io
 
-        images = convert_from_bytes(pdf_bytes, fmt="png")
-        ocr_parts = []
-        for img in images:
-            buf = io.BytesIO()
-            img.save(buf, format="PNG")
-            ocr_parts.append(pytesseract.image_to_string(buf.getvalue()))
-        content = "\n".join(ocr_parts)
+                images = convert_from_bytes(pdf_bytes, fmt="png")
+                ocr_parts = []
+                for img in images:
+                    buf = io.BytesIO()
+                    img.save(buf, format="PNG")
+                    ocr_parts.append(pytesseract.image_to_string(buf.getvalue()))
+                content = "\n".join(ocr_parts)
 
+        # ---------- TXT ----------
+        elif ext == "txt":
+            content = temp_file.read().decode("utf-8")
+
+        else:
+            raise ValueError("Unsupported file type")
 
     except Exception as e:
         return SummarizeEvidenceResponse(
@@ -161,14 +182,16 @@ async def upload_evidence(
             legalIssues=[],
             credibilityConcerns="",
             recommendation="",
-            verificationNotes=f"File processing error: {str(e)}"
+            verificationNotes=f"File processing error: {str(e)}",
         )
 
+    # ---------- Chunking ----------
     MAX_CHARS = 11000
-    chunks = [content[i:i+MAX_CHARS] for i in range(0, len(content), MAX_CHARS)]
+    chunks = [content[i : i + MAX_CHARS] for i in range(0, len(content), MAX_CHARS)]
     if len(chunks) > 1:
         truncated = True
 
+    # ---------- GPT analysis helper ----------
     def gpt_analyze(text_chunk: str):
         prompt = f"""
 You are an expert immigration attorney analyzing part of a legal evidence document.
@@ -193,19 +216,21 @@ Return JSON only:
             response = client.chat.completions.create(
                 model="gpt-4",
                 messages=[
-                    {"role": "system", "content": "You are a senior immigration attorney. Reply ONLY in flat JSON. No markdown."},
-                    {"role": "user", "content": prompt}
+                    {
+                        "role": "system",
+                        "content": "You are a senior immigration attorney. Reply ONLY in flat JSON. No markdown.",
+                    },
+                    {"role": "user", "content": prompt},
                 ],
-                temperature=0.3
+                temperature=0.3,
             )
-
             result = response.choices[0].message.content.strip()
             if result.startswith("```json"):
                 result = result.replace("```json", "").strip()
             if result.endswith("```"):
                 result = result[:-3].strip()
 
-            # 🔍 Print raw GPT response for debugging
+            # raw GPT output for debugging
             print("\n--- GPT RAW RESPONSE START ---")
             print(result)
             print("--- GPT RAW RESPONSE END ---\n")
@@ -213,18 +238,23 @@ Return JSON only:
             return json.loads(result)
 
         except Exception as e:
-            print(f"❌ GPT error during evidence chunk analysis: {str(e)}")
+            print(f"❌ GPT error during evidence chunk analysis: {e}")
             return {
                 "summary": "Error during GPT analysis.",
                 "keyFacts": [],
                 "legalIssues": [],
                 "credibilityConcerns": "",
                 "recommendation": "",
-                "verificationNotes": f"GPT error: {str(e)}"
+                "verificationNotes": f"GPT error: {e}",
             }
 
-    summaries, keyFacts, legalIssues = [], [], []
-    credibilityNotes, recommendations, verificationNotes = [], [], []
+    # ---------- Aggregate GPT results ----------
+    summaries: List[str] = []
+    keyFacts: List[str] = []
+    legalIssues: List[str] = []
+    credibilityNotes: List[str] = []
+    recommendations: List[str] = []
+    verificationNotes: List[str] = []
 
     for chunk in chunks:
         parsed = gpt_analyze(chunk)
@@ -244,7 +274,8 @@ Return JSON only:
         summary=" ".join(summaries),
         keyFacts=list(set(keyFacts)),
         legalIssues=list(set(legalIssues)),
-        credibilityConcerns=" ".join([c for c in credibilityNotes if c]),
-        recommendation=" ".join([r for r in recommendations if r]),
-        verificationNotes="\n".join([v for v in verificationNotes if v])
+        credibilityConcerns=" ".join(c for c in credibilityNotes if c),
+        recommendation=" ".join(r for r in recommendations if r),
+        verificationNotes="\n".join(v for v in verificationNotes if v),
     )
+
