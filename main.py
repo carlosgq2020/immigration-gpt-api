@@ -126,14 +126,28 @@ async def upload_evidence(
         if ext == "docx":
             document = docx.Document(temp_file)
             content = "\n".join([p.text for p in document.paragraphs if p.text.strip()])
-        elif ext == "pdf":
-            pdf = fitz.open(stream=temp_file.read(), filetype="pdf")
-            content = "".join([page.get_text() for page in pdf])
+       elif ext == "pdf":
+            pdf_bytes = temp_file.read()
+
+    # ---------- 1) try embedded text ----------
+    import fitz
+            pdf = fitz.open(stream=pdf_bytes, filetype="pdf")
+            content = "".join(page.get_text() or "" for page in pdf)
             pdf.close()
-        elif ext == "txt":
-            content = temp_file.read().decode("utf-8")
-        else:
-            raise ValueError("Unsupported file type")
+
+    # ---------- 2) OCR fallback if empty ----------
+    if not content.strip():
+        from pdf2image import convert_from_bytes
+        import pytesseract, io
+
+        images = convert_from_bytes(pdf_bytes, fmt="png")
+        ocr_parts = []
+        for img in images:
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            ocr_parts.append(pytesseract.image_to_string(buf.getvalue()))
+        content = "\n".join(ocr_parts)
+
 
     except Exception as e:
         return SummarizeEvidenceResponse(
