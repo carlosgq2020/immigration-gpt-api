@@ -6,3 +6,7 @@ pymupdf
 python-multipart
 pip==25.0.1
 python-dotenv
+PyMuPDF>=1.25
+pdf2image>=1.17
+pillow>=10.0
+pytesseract>=0.3
