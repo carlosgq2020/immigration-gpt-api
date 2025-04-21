@@ -5,21 +5,30 @@ from tempfile import SpooledTemporaryFile
 from typing import List, Optional
 
 import openai
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, Depends
 from pydantic import BaseModel
 import docx
 import fitz  # PyMuPDF
 
-# === Load environment and set API key ===
+# ------------------------------------------------------------------
+#  authentication helper
+# ------------------------------------------------------------------
+from auth import require_api_key  # -> auth.py contains require_api_key()
+
+# ------------------------------------------------------------------
+#  load environment / set OpenAI
+# ------------------------------------------------------------------
 load_dotenv()
 openai_api_key = os.getenv("OPENAI_API_KEY")
 print("🔑 API KEY:", "FOUND" if openai_api_key else "NOT FOUND")
 client = openai.OpenAI(api_key=openai_api_key)
 
-# === FastAPI App ===
+# ------------------------------------------------------------------
+#  FastAPI app
+# ------------------------------------------------------------------
 app = FastAPI(
     title="LawQB Immigration Legal AI API",
-    description="Upload declarations and receive legal analysis and motion drafting assistance. Powered by GPT-4.",
+    description="Upload declarations and receive legal analysis and motion drafting assistance. Powered by GPT‑4.",
     version="1.0.0",
 )
 
@@ -29,7 +38,9 @@ def healthcheck():
     return {"status": "ok"}
 
 
-# === /analyze endpoint ===
+# ------------------------------------------------------------------
+#  /analyze
+# ------------------------------------------------------------------
 class AnalyzeRequest(BaseModel):
     question: str
     jurisdiction: Optional[str] = None
@@ -46,7 +57,11 @@ class AnalyzeResponse(BaseModel):
     verificationNotes: str
 
 
-@app.post("/analyze", response_model=AnalyzeResponse)
+@app.post(
+    "/analyze",
+    response_model=AnalyzeResponse,
+    dependencies=[Depends(require_api_key)],
+)
 def analyze(req: AnalyzeRequest):
     prompt = f"""
 You are an expert U.S. immigration attorney. Use the IRAC format to answer this legal question.
@@ -98,7 +113,9 @@ Respond in raw JSON only (no markdown), with the following fields:
         )
 
 
-# === /uploadEvidence endpoint ===
+# ------------------------------------------------------------------
+#  /uploadEvidence
+# ------------------------------------------------------------------
 class SummarizeEvidenceResponse(BaseModel):
     filename: str
     sizeInBytes: int
@@ -113,7 +130,11 @@ class SummarizeEvidenceResponse(BaseModel):
     verificationNotes: str
 
 
-@app.post("/uploadEvidence", response_model=SummarizeEvidenceResponse)
+@app.post(
+    "/uploadEvidence",
+    response_model=SummarizeEvidenceResponse,
+    dependencies=[Depends(require_api_key)],
+)
 async def upload_evidence(
     file: UploadFile = File(...),
     jurisdiction: Optional[str] = Form(None),
@@ -144,12 +165,12 @@ async def upload_evidence(
         elif ext == "pdf":
             pdf_bytes = temp_file.read()
 
-            # 1) try embedded text
+            # 1) embedded text
             pdf = fitz.open(stream=pdf_bytes, filetype="pdf")
             content = "".join(page.get_text() or "" for page in pdf)
             pdf.close()
 
-            # 2) OCR fallback if empty
+            # 2) OCR if empty
             if not content.strip():
                 from pdf2image import convert_from_bytes
                 import pytesseract
@@ -186,12 +207,12 @@ async def upload_evidence(
         )
 
     # ---------- Chunking ----------
-    MAX_CHARS = 11000
+    MAX_CHARS = 11_000
     chunks = [content[i : i + MAX_CHARS] for i in range(0, len(content), MAX_CHARS)]
     if len(chunks) > 1:
         truncated = True
 
-    # ---------- GPT analysis helper ----------
+    # ---------- GPT helper ----------
     def gpt_analyze(text_chunk: str):
         prompt = f"""
 You are an expert immigration attorney analyzing part of a legal evidence document.
@@ -230,7 +251,7 @@ Return JSON only:
             if result.endswith("```"):
                 result = result[:-3].strip()
 
-            # raw GPT output for debugging
+            # debug print
             print("\n--- GPT RAW RESPONSE START ---")
             print(result)
             print("--- GPT RAW RESPONSE END ---\n")
@@ -248,7 +269,7 @@ Return JSON only:
                 "verificationNotes": f"GPT error: {e}",
             }
 
-    # ---------- Aggregate GPT results ----------
+    # ---------- Aggregate ----------
     summaries: List[str] = []
     keyFacts: List[str] = []
     legalIssues: List[str] = []
@@ -278,4 +299,3 @@ Return JSON only:
         recommendation=" ".join(r for r in recommendations if r),
         verificationNotes="\n".join(v for v in verificationNotes if v),
     )
-
