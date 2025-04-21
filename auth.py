@@ -1,27 +1,38 @@
 # auth.py
 """
-Very small helper for local tests and simple header‑based auth.
+Tiny helper for header‑based API‑key auth and for the test‑suite.
 
-Anything that calls the API must supply header:
+Usage
+=====
 
-    x-api-key: <whatever_key_you_choose>
+Every request must include a header:
 
-For Render (production) you already store the real key as a secret.
-For local tests we default to a dummy value so pytest can import it.
+    x-api-key: <your-secret>
+
+For production Render you already inject the secret via “Environment → OPENAI_API_KEY”.
+For local tests we default to 'dummy-local-key'.
+
+The test file `tests/test_upload_pdf.py` imports `LAWQB_API_KEY`,
+so we expose it as a module‑level constant.
 """
 
 import os
 from fastapi import Header, HTTPException, status
 
-# ---------- constant the tests need ----------
+# ------------------------------------------------------------------
+# This constant is what the test imports.  Keep the name *exactly*.
+# ------------------------------------------------------------------
 LAWQB_API_KEY: str = os.getenv("LAWQB_API_KEY", "dummy-local-key")
-# ---------------------------------------------
+# ------------------------------------------------------------------
+
 
 def require_api_key(x_api_key: str = Header(..., alias="x-api-key")) -> None:
-    """Raise 401 if header key doesn’t match."""
+    """
+    Dependency for FastAPI routes.
+    Raises 401 if the supplied header doesn’t match LAWQB_API_KEY.
+    """
     if x_api_key != LAWQB_API_KEY:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing API key",
         )
-
