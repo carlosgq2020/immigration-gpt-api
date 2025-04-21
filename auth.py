@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # auth.py
 """
 Tiny helper for header‑based API‑key auth and for the test‑suite.
@@ -36,3 +37,10 @@ def require_api_key(x_api_key: str = Header(..., alias="x-api-key")) -> None:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing API key",
         )
+=======
+import os
+LAWQB_API_KEY = os.getenv("LAWQB_API_KEY", "dummy-local-key")
+def verify_key(key: str) -> bool:
+    return key == LAWQB_API_KEY
+
+>>>>>>> a4e3613 (Add LAWQB_API_KEY constant)
