@@ -5,9 +5,11 @@ services:
     plan: free
 
     buildCommand: |
-      # 1) make apt available and install tesseract‑ocr
-      apt-get update && apt-get install -y tesseract-ocr
-      # 2) install Python deps
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update -y
+      apt-get install -y --no-install-recommends \
+          tesseract-ocr poppler-utils           # ← add poppler-utils
+      pip install --upgrade pip
       pip install -r requirements.txt
 
     startCommand: uvicorn main:app --host 0.0.0.0 --port 10000
