@@ -32,30 +32,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AnalyzeResponse'
-  /draftMotion:
-    post:
-      operationId: draftMotion
-      summary: Generate a motion based on facts and issue
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                issue:
-                  type: string
-                facts:
-                  type: string
-                jurisdiction:
-                  type: string
-      responses:
-        '200':
-          description: Draft motion response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DraftMotionResponse'
   /uploadEvidence:
     post:
       operationId: summarizeEvidenceUpload
@@ -102,39 +78,32 @@ components:
           type: string
         verificationNotes:
           type: string
-    DraftMotionResponse:
-      type: object
-      properties:
-        heading:
+  SummarizeEvidenceResponse:
+    type: object
+    properties:
+      filename:
+        type: string
+      sizeInBytes:
+        type: integer
+      readableSize:
+        type: string
+      fileType:
+        type: string
+      truncated:
+        type: boolean
+      summary:
+        type: string
+      keyFacts:
+        type: array
+        items:
           type: string
-        introduction:
+      legalIssues:
+        type: array
+        items:
           type: string
-        legalArgument:
-          type: string
-        conclusion:
-          type: string
-        citations:
-          type: array
-          items:
-            type: string
-        verificationNotes:
-          type: string
-    SummarizeEvidenceResponse:
-      type: object
-      properties:
-        summary:
-          type: string
-        keyFacts:
-          type: array
-          items:
-            type: string
-        legalIssues:
-          type: array
-          items:
-            type: string
-        credibilityConcerns:
-          type: string
-        recommendation:
-          type: string
-        verificationNotes:
-          type: string
+      credibilityConcerns:
+        type: string
+      recommendation:
+        type: string
+      verificationNotes:
+        type: string
