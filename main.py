@@ -7,8 +7,15 @@ from typing import List, Optional
 import openai
 from fastapi import FastAPI, UploadFile, File, Form, Depends
 from pydantic import BaseModel
-import docx
-import fitz  # PyMuPDF
+try:
+    import docx
+except Exception:  # pragma: no cover - optional dependency
+    docx = None
+try:
+    import fitz  # PyMuPDF
+except Exception:  # pragma: no cover - optional dependency
+    fitz = None
+from utils.simple_split import classify_text
 
 # ------------------------------------------------------------------
 #  authentication helper
@@ -122,6 +129,7 @@ class SummarizeEvidenceResponse(BaseModel):
     readableSize: str
     fileType: str
     truncated: bool
+    category: str
     summary: str
     keyFacts: List[str]
     legalIssues: List[str]
@@ -154,8 +162,12 @@ async def upload_evidence(
         temp_file.seek(0)
         readable_size = f"{round(total_bytes / 1024, 1)} KB"
 
+        page_count = 0
+
         # ---------- DOCX ----------
         if ext == "docx":
+            if not docx:
+                raise ValueError("docx support not available")
             document = docx.Document(temp_file)
             content = "\n".join(
                 [p.text for p in document.paragraphs if p.text.strip()]
@@ -163,26 +175,32 @@ async def upload_evidence(
 
         # ---------- PDF (with OCR fallback) ----------
         elif ext == "pdf":
+            if not fitz:
+                raise ValueError("pdf support not available")
             pdf_bytes = temp_file.read()
 
             # 1) embedded text
             pdf = fitz.open(stream=pdf_bytes, filetype="pdf")
+            page_count = len(pdf)
             content = "".join(page.get_text() or "" for page in pdf)
             pdf.close()
 
             # 2) OCR if empty
             if not content.strip():
-                from pdf2image import convert_from_bytes
-                import pytesseract
-                import io
+                try:
+                    from pdf2image import convert_from_bytes
+                    import pytesseract
+                    import io
 
-                images = convert_from_bytes(pdf_bytes, fmt="png")
-                ocr_parts = []
-                for img in images:
-                    buf = io.BytesIO()
-                    img.save(buf, format="PNG")
-                    ocr_parts.append(pytesseract.image_to_string(buf.getvalue()))
-                content = "\n".join(ocr_parts)
+                    images = convert_from_bytes(pdf_bytes, fmt="png")
+                    ocr_parts = []
+                    for img in images:
+                        buf = io.BytesIO()
+                        img.save(buf, format="PNG")
+                        ocr_parts.append(pytesseract.image_to_string(buf.getvalue()))
+                    content = "\n".join(ocr_parts)
+                except Exception:
+                    content = ""
 
         # ---------- TXT ----------
         elif ext == "txt":
@@ -191,6 +209,8 @@ async def upload_evidence(
         else:
             raise ValueError("Unsupported file type")
 
+        category = classify_text(content, size_bytes=total_bytes, num_pages=page_count)
+
     except Exception as e:
         return SummarizeEvidenceResponse(
             filename=file.filename,
@@ -198,6 +218,7 @@ async def upload_evidence(
             readableSize=readable_size,
             fileType=ext,
             truncated=False,
+            category="unknown",
             summary="Could not process file.",
             keyFacts=[],
             legalIssues=[],
@@ -292,6 +313,7 @@ Return JSON only:
         readableSize=readable_size,
         fileType=ext,
         truncated=truncated,
+        category=category,
         summary=" ".join(summaries),
         keyFacts=list(set(keyFacts)),
         legalIssues=list(set(legalIssues)),

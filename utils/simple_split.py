@@ -49,6 +49,18 @@ COUNTRY_COND_PAT = re.compile(
     re.I | re.X,
 )
 
+# ---------- classify --------------------------------------------------------
+def classify_text(text: str, *, size_bytes: int = 0, num_pages: int = 0) -> str:
+    """Return 'case facts' or 'country conditions' for *text*."""
+    if CASE_FACTS_PAT.search(text):
+        return "case facts"
+    if COUNTRY_COND_PAT.search(text):
+        return "country conditions"
+
+    too_big = size_bytes > 2_000_000
+    too_long = num_pages > 40 or len(text) > 20_000
+    return "country conditions" if (too_big or too_long) else "case facts"
+
 # ---------- helper ----------------------------------------------------------
 def bucket(pdf: pathlib.Path) -> pathlib.Path:
     """Return CF or CC for *pdf*."""
@@ -57,16 +69,8 @@ def bucket(pdf: pathlib.Path) -> pathlib.Path:
         sample = "".join(
             (reader.pages[i].extract_text() or "") for i in range(min(3, len(reader.pages)))
         )
-
-        if CASE_FACTS_PAT.search(sample):
-            return CF
-        if COUNTRY_COND_PAT.search(sample):
-            return CC
-
-        # fallback: large or long ⇒ country-conditions
-        too_big  = pdf.stat().st_size > 2_000_000   # > 2 MB
-        too_long = len(reader.pages)  > 40          # > 40 pp
-        return CC if (too_big or too_long) else CF
+        category = classify_text(sample, size_bytes=pdf.stat().st_size, num_pages=len(reader.pages))
+        return CF if category == "case facts" else CC
 
     except Exception as exc:
         print(f"!! cannot read {pdf}: {exc}", file=sys.stderr)

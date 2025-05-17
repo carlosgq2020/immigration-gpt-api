@@ -91,6 +91,9 @@ components:
         type: string
       truncated:
         type: boolean
+      category:
+        type: string
+        description: "Classification of the document ('case facts' or 'country conditions')"
       summary:
         type: string
       keyFacts:

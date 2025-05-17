@@ -24,4 +24,5 @@ def test_pdf_upload():
     assert resp.status_code == 200
     body = resp.json()
     assert body["fileType"] == "pdf"
+    assert body["category"] == "case facts"
 
