@@ -1,6 +1,6 @@
 # Immigration GPT API
 
-This project exposes a small FastAPI service for analyzing immigration case files using OpenAI models. The API allows you to submit legal questions and upload evidence documents for summarization.
+This project exposes a small FastAPI service for analyzing immigration case files using OpenAI models. The API allows you to submit legal questions and upload evidence documents for summarization and legal analysis.
 
 ## Setup
 
